@@ -7,9 +7,11 @@ let package = Package(
     products: [
         .library(name: "CCQuotaCore", targets: ["CCQuotaCore"]),
         .executable(name: "ccquota", targets: ["ccquota"]),
+        .executable(name: "widget-preview", targets: ["WidgetPreview"]),
     ],
     targets: [
         .target(name: "CCQuotaCore"),
         .executableTarget(name: "ccquota", dependencies: ["CCQuotaCore"]),
+        .executableTarget(name: "WidgetPreview", dependencies: ["CCQuotaCore"], path: "Tools/WidgetPreview"),
     ]
 )

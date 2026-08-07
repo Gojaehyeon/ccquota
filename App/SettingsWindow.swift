@@ -89,10 +89,14 @@ struct SettingsWindow: View {
                             }
                             Spacer()
                             if let percent = account.headlinePercent {
-                                Text("\(Int(percent.rounded()))%")
-                                    .font(.callout.monospacedDigit())
-                                    .foregroundStyle(account.severity.color)
-                                    .opacity(account.isStale ? 0.5 : 1)
+                                // Value in text ink; the chip beside it carries
+                                // the grade, with icon and word, never hue alone.
+                                HStack(spacing: 5) {
+                                    Text("\(Int(percent.rounded()))%")
+                                        .font(.callout.monospacedDigit())
+                                    StatusChip(percent: percent)
+                                }
+                                .opacity(account.isStale ? 0.5 : 1)
                             }
                             if account.isActive {
                                 Text("사용 중").font(.caption).foregroundStyle(.secondary)

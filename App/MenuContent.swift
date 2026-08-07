@@ -18,7 +18,8 @@ struct MenuContent: View {
 
             if let accounts = model.state?.accounts, !accounts.isEmpty {
                 VStack(spacing: 14) {
-                    ForEach(accounts) { account in
+                    // Same order as the widget: in-use first, then most headroom.
+                    ForEach(displayOrder(accounts)) { account in
                         AccountRow(account: account) {
                             Task { await model.switchTo(account.label) }
                         }
@@ -129,6 +130,9 @@ private struct AccountRow: View {
                         .padding(.horizontal, 4).padding(.vertical, 1)
                         .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
                 }
+                if let headline = account.headlinePercent {
+                    StatusChip(percent: headline)
+                }
                 Spacer()
                 if account.isActive {
                     Text("사용 중").font(.caption2).foregroundStyle(.secondary)
@@ -169,13 +173,12 @@ private struct MeterRow: View {
                     .foregroundStyle(indented ? .secondary : .primary)
                     .frame(width: 62, alignment: .leading)
 
-                ProgressView(value: min(percent, 100), total: 100)
-                    .tint(Severity(percent: percent).color)
-                    .frame(height: 4)
+                QuotaMeter(percent: percent, height: 5)
 
                 Text("\(Int(percent.rounded()))%")
                     .font(.caption.monospacedDigit())
-                    .frame(width: 34, alignment: .trailing)
+                    .lineLimit(1).fixedSize()
+                    .frame(width: 36, alignment: .trailing)
 
                 Text(Countdown.text(until: resets))
                     .font(.caption2).foregroundStyle(.secondary)
