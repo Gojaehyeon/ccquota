@@ -66,16 +66,17 @@ func render(_ state: SharedStateFile) {
         if account.isActive { title += color("  ← 현재 로그인", "36") }
         print(title)
 
+        // An account-specific fault is loud; staleness is a quiet footnote. But
+        // it must still be said — without it there is no way to tell a figure
+        // measured seconds ago from one measured three hours ago.
         if let error = account.error {
-            var note = "조회 실패: \(error)"
-            if account.isStale {
-                let age = account.dataAsOf.map {
-                    " (\(max(0, Int(-$0.timeIntervalSinceNow) / 60))분 전 값 표시 중)"
-                } ?? " (이전 값 표시 중)"
-                note += age
-            }
-            print("    " + color(note, "31"))
+            print("    " + color("조회 실패: \(error)", "31"))
             if !account.isStale { print(""); continue }
+        }
+        if account.isStale {
+            let age = account.dataAsOf.map { "\(max(1, Int(-$0.timeIntervalSinceNow) / 60))분 전 값" }
+                ?? "이전 값"
+            print("    " + color(age, "90"))
         }
 
         func row(_ name: String, _ percent: Double?, _ resets: Date?) {

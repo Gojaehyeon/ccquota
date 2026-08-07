@@ -185,7 +185,10 @@ public struct QuotaService: Sendable {
                     skipped.plan = remaining.blob.oauth?.subscriptionType
                     skipped.tier = remaining.tier
                     skipped.email = remaining.email
-                    skipped.error = "요청 제한으로 조회를 건너뛰었습니다"
+                    // Deliberately no per-account error: being rate limited is
+                    // one global condition, and repeating it on every row buried
+                    // the data under identical warnings.
+                    skipped.isStale = true
                     results.append(PollResult(snapshot: skipped, updatedEntry: nil,
                                               wasRateLimited: false, retryAfterHint: nil))
                 }
@@ -207,12 +210,16 @@ public struct QuotaService: Sendable {
         // failures: values with a visible age beat no values at all.
         let merged = results.map { result -> AccountSnapshot in
             let snapshot = result.snapshot
-            guard snapshot.error != nil,
+            let failed = snapshot.error != nil || snapshot.isStale
+            guard failed,
                   let old = previous?.accounts.first(where: { $0.label == snapshot.label }),
                   old.headlinePercent != nil else { return snapshot }
             var carried = old
             carried.isActive = snapshot.isActive
-            carried.error = snapshot.error
+            // A rate limit is reported once, by `retryAfter` on the file. Only a
+            // fault specific to this account — an expired login, a missing
+            // credential — earns a message on its own row.
+            carried.error = result.wasRateLimited ? nil : snapshot.error
             carried.isStale = true
             return carried
         }

@@ -9,7 +9,15 @@ struct MenuContent: View {
         VStack(alignment: .leading, spacing: 12) {
             header
 
-            if let error = model.lastError {
+            if let retry = model.state?.retryAfter, retry > Date() {
+                // One line for one condition. The resume time is the actionable
+                // part and the app had no way to show it at all.
+                Label("요청 제한 — \(Countdown.text(until: retry)) 재개",
+                      systemImage: "clock.badge.exclamationmark")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let error = model.lastError {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.red)
@@ -134,6 +142,10 @@ private struct AccountRow: View {
                     StatusChip(percent: headline)
                 }
                 Spacer()
+                if account.isStale, let asOf = account.dataAsOf {
+                    Text("\(max(1, Int(-asOf.timeIntervalSinceNow) / 60))분 전")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
                 if account.isActive {
                     Text("사용 중").font(.caption2).foregroundStyle(.secondary)
                 } else {
@@ -141,8 +153,10 @@ private struct AccountRow: View {
                 }
             }
 
+            // Only an account-specific fault is loud. Staleness is a footnote
+            // on the value, not an alarm of its own.
             if let error = account.error {
-                Text(account.isStale ? "\(error) — 이전 값 표시 중" : error)
+                Text(error)
                     .font(.caption2).foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
