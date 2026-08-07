@@ -61,5 +61,26 @@ MainActor.assumeIsolated {
                size: CGSize(width: 329, height: 155), dark: dark, to: "\(out)/medium-edge-\(tag).png")
         render(SmallView(accounts: [hot]), size: CGSize(width: 155, height: 155),
                dark: dark, to: "\(out)/small-edge-\(tag).png")
+
+        // The desaturated pass. macOS renders a desktop widget this way whenever
+        // the desktop is not the focused surface, so it is the state the widget
+        // spends most of its life in — and the one worth reviewing hardest.
+        render(MediumView(accounts: accounts, updatedAt: Date(), monochrome: true)
+                .grayscale(1),
+               size: CGSize(width: 329, height: 155), dark: dark,
+               to: "\(out)/medium-mono-\(tag).png")
+        render(SmallView(accounts: accounts, monochrome: true).grayscale(1),
+               size: CGSize(width: 155, height: 155), dark: dark,
+               to: "\(out)/small-mono-\(tag).png")
+
+        render(LargeView(accounts: accounts, updatedAt: Date()),
+               size: CGSize(width: 329, height: 345), dark: dark,
+               to: "\(out)/large-\(tag).png")
+        render(LargeView(accounts: accounts + [hot, stale], updatedAt: Date()),
+               size: CGSize(width: 329, height: 345), dark: dark,
+               to: "\(out)/large-edge-\(tag).png")
+        render(LargeView(accounts: accounts, updatedAt: Date(), monochrome: true).grayscale(1),
+               size: CGSize(width: 329, height: 345), dark: dark,
+               to: "\(out)/large-mono-\(tag).png")
     }
 }

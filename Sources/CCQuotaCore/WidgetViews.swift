@@ -20,8 +20,15 @@ public func displayOrder(_ accounts: [AccountSnapshot]) -> [AccountSnapshot] {
 /// the headline number large, and the two windows beneath it as meters.
 public struct SmallView: View {
     let accounts: [AccountSnapshot]
+    /// True when the system is rendering the widget desaturated — the macOS
+    /// desktop does this whenever it is not the focused surface, which is most
+    /// of the time. Hue carries nothing in that mode.
+    let monochrome: Bool
 
-    public init(accounts: [AccountSnapshot]) { self.accounts = accounts }
+    public init(accounts: [AccountSnapshot], monochrome: Bool = false) {
+        self.accounts = accounts
+        self.monochrome = monochrome
+    }
 
     private var focus: AccountSnapshot? {
         accounts.first { $0.isActive } ?? displayOrder(accounts).first
@@ -31,7 +38,7 @@ public struct SmallView: View {
         if let account = focus {
             VStack(alignment: .leading, spacing: 0) {
                 Text(account.label)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1).truncationMode(.tail)
 
                 Spacer(minLength: 0)
@@ -40,24 +47,24 @@ public struct SmallView: View {
                 // Ink stays primary — the meters and the chip carry the hue.
                 HStack(alignment: .firstTextBaseline, spacing: 1) {
                     Text("\(Int((account.headlinePercent ?? 0).rounded()))")
-                        .font(.system(size: 44, weight: .semibold))
-                    Text("%").font(.system(size: 19, weight: .semibold))
+                        .font(.system(size: 48, weight: .semibold))
+                    Text("%").font(.system(size: 21, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
                 .lineLimit(1).minimumScaleFactor(0.6)
                 .opacity(account.isStale ? 0.55 : 1)
 
                 HStack(spacing: 4) {
-                    StatusChip(percent: account.headlinePercent ?? 0)
+                    StatusChip(percent: account.headlinePercent ?? 0, monochrome: monochrome)
                     Text(account.headlineWindowName.map { "· \($0) 사용" } ?? "")
-                        .font(.system(size: 9))
+                        .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer(minLength: 0)
 
-                MeterRow(title: "5시간", percent: account.fiveHourPercent)
-                MeterRow(title: "주간", percent: account.weeklyPercent)
+                MeterRow(title: "5시간", percent: account.fiveHourPercent, monochrome: monochrome)
+                MeterRow(title: "주간", percent: account.weeklyPercent, monochrome: monochrome)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
@@ -70,19 +77,20 @@ public struct SmallView: View {
 struct MeterRow: View {
     let title: String
     let percent: Double?
+    var monochrome = false
 
     var body: some View {
         if let percent {
             HStack(spacing: 5) {
                 Text(title)
-                    .font(.system(size: 9))
+                    .font(.system(size: 10))
                     .foregroundStyle(.secondary)
-                    .frame(width: 28, alignment: .leading)
-                QuotaMeter(percent: percent, height: 5)
+                    .frame(width: 32, alignment: .leading)
+                QuotaMeter(percent: percent, height: 6, monochrome: monochrome)
                 Text("\(Int(percent.rounded()))%")
-                    .font(.system(size: 9, weight: .medium).monospacedDigit())
+                    .font(.system(size: 11, weight: .medium).monospacedDigit())
                     .lineLimit(1).fixedSize()
-                    .frame(width: 32, alignment: .trailing)
+                    .frame(width: 36, alignment: .trailing)
             }
             .padding(.top, 5)
         }
@@ -97,10 +105,12 @@ struct MeterRow: View {
 public struct MediumView: View {
     let accounts: [AccountSnapshot]
     let updatedAt: Date?
+    let monochrome: Bool
 
-    public init(accounts: [AccountSnapshot], updatedAt: Date?) {
+    public init(accounts: [AccountSnapshot], updatedAt: Date?, monochrome: Bool = false) {
         self.accounts = accounts
         self.updatedAt = updatedAt
+        self.monochrome = monochrome
     }
 
     /// Four rows is what fits before the type would have to shrink below
@@ -110,8 +120,8 @@ public struct MediumView: View {
     private var visible: [AccountSnapshot] { Array(displayOrder(accounts).prefix(4)) }
     private var hidden: Int { max(0, accounts.count - 4) }
 
-    private let nameWidth: CGFloat = 88
-    private let valueWidth: CGFloat = 34
+    private let nameWidth: CGFloat = 92
+    private let valueWidth: CGFloat = 50
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -127,22 +137,23 @@ public struct MediumView: View {
                         .frame(maxHeight: .infinity)
                 }
             }
+            .frame(maxHeight: .infinity)
 
             if hidden > 0 {
                 Text("외 \(hidden)개 계정 — 앱에서 확인")
-                    .font(.system(size: 8)).foregroundStyle(.tertiary)
+                    .font(.system(size: 9)).foregroundStyle(.secondary)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var header: some View {
         HStack(spacing: 4) {
-            Text("Claude Max 한도").font(.system(size: 11, weight: .semibold))
+            Text("Claude Max 한도").font(.system(size: 12, weight: .semibold))
             Spacer()
             if let updatedAt {
                 Text(updatedAt, style: .time)
-                    .font(.system(size: 9)).foregroundStyle(.secondary)
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
             }
         }
     }
@@ -155,8 +166,8 @@ public struct MediumView: View {
             Text("주간").frame(maxWidth: .infinity, alignment: .leading)
             Text("").frame(width: valueWidth)
         }
-        .font(.system(size: 8, weight: .medium))
-        .foregroundStyle(.tertiary)
+        .font(.system(size: 9, weight: .medium))
+        .foregroundStyle(.secondary)
     }
 
     private func row(for account: AccountSnapshot) -> some View {
@@ -168,7 +179,7 @@ public struct MediumView: View {
                     .fill(account.isActive ? Color.accentColor : .clear)
                     .frame(width: 4, height: 4)
                 Text(account.label)
-                    .font(.system(size: 10, weight: account.isActive ? .semibold : .regular))
+                    .font(.system(size: 11.5, weight: account.isActive ? .semibold : .regular))
                     .lineLimit(1).truncationMode(.tail)
                 // Deliberately no row-level status chip here. One chip has to
                 // summarise two windows, so it ends up sitting beside a green
@@ -185,18 +196,156 @@ public struct MediumView: View {
     @ViewBuilder
     private func cell(_ percent: Double?, stale: Bool) -> some View {
         if let percent {
-            QuotaMeter(percent: percent, height: 5)
+            QuotaMeter(percent: percent, height: 6, monochrome: monochrome)
                 .opacity(stale ? 0.45 : 1)
-            Text("\(Int(percent.rounded()))%")
-                .font(.system(size: 9, weight: .medium).monospacedDigit())
-                .lineLimit(1).fixedSize()
-                .foregroundStyle(stale ? .secondary : .primary)
-                .frame(width: valueWidth, alignment: .trailing)
+            HStack(spacing: 2) {
+                // Per-window, so it never contradicts the bar beside it — and it
+                // is the only thing that survives the desaturated render mode,
+                // where every bar is the same grey whatever its grade.
+                if Severity(percent: percent) != .healthy {
+                    Image(systemName: Severity.symbol(for: percent))
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(monochrome ? Color.primary
+                                                    : Severity(percent: percent).color)
+                }
+                Text("\(Int(percent.rounded()))%")
+                    .font(.system(size: 10.5, weight: .medium).monospacedDigit())
+                    .lineLimit(1).fixedSize()
+                    .foregroundStyle(stale ? .secondary : .primary)
+            }
+            .opacity(stale ? 0.6 : 1)
+            .frame(width: valueWidth, alignment: .trailing)
         } else {
             Color.clear.frame(height: 5)
             Text("—")
-                .font(.system(size: 9)).foregroundStyle(.tertiary)
+                .font(.system(size: 10)).foregroundStyle(.secondary)
                 .frame(width: valueWidth, alignment: .trailing)
+        }
+    }
+}
+
+// MARK: - Large: every account with the detail the other sizes cannot fit
+
+/// Large is the only size with room for the reset times, which is the other half
+/// of the decision: "73% used" and "resets in 4 days" mean very different things
+/// from "73% used" and "resets in 40 minutes".
+public struct LargeView: View {
+    let accounts: [AccountSnapshot]
+    let updatedAt: Date?
+    let monochrome: Bool
+
+    public init(accounts: [AccountSnapshot], updatedAt: Date?, monochrome: Bool = false) {
+        self.accounts = accounts
+        self.updatedAt = updatedAt
+        self.monochrome = monochrome
+    }
+
+    private var visible: [AccountSnapshot] { Array(displayOrder(accounts).prefix(4)) }
+    private var hidden: Int { max(0, accounts.count - 4) }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Claude Max 한도").font(.system(size: 14, weight: .semibold))
+                Spacer()
+                if let updatedAt {
+                    Text(updatedAt, style: .time)
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.bottom, 4)
+
+            VStack(spacing: 0) {
+                ForEach(Array(visible.enumerated()), id: \.element.id) { index, account in
+                    if index > 0 { Divider() }
+                    section(for: account).frame(maxHeight: .infinity)
+                }
+            }
+            .frame(maxHeight: .infinity)
+
+            if hidden > 0 {
+                Text("외 \(hidden)개 계정 — 앱에서 확인")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func section(for account: AccountSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(account.isActive ? Color.accentColor : .clear)
+                    .frame(width: 5, height: 5)
+                Text(account.label)
+                    .font(.system(size: 13, weight: account.isActive ? .semibold : .medium))
+                    .lineLimit(1).truncationMode(.tail)
+                if account.isActive {
+                    Text("사용 중")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 4)
+                if let headline = account.headlinePercent {
+                    StatusChip(percent: headline, monochrome: monochrome)
+                }
+            }
+
+            if let error = account.error, !account.isStale {
+                Text(error).font(.system(size: 10)).foregroundStyle(.secondary)
+                    .lineLimit(2)
+            } else {
+                DetailMeterRow(title: "5시간", percent: account.fiveHourPercent,
+                               resets: account.fiveHourResetsAt,
+                               stale: account.isStale, monochrome: monochrome)
+                DetailMeterRow(title: "주간", percent: account.weeklyPercent,
+                               resets: account.weeklyResetsAt,
+                               stale: account.isStale, monochrome: monochrome)
+            }
+        }
+        .padding(.vertical, 7)
+    }
+}
+
+/// The large-size row: label, meter, value, and the reset time the smaller
+/// families have to leave out.
+private struct DetailMeterRow: View {
+    let title: String
+    let percent: Double?
+    let resets: Date?
+    let stale: Bool
+    let monochrome: Bool
+
+    var body: some View {
+        if let percent {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 36, alignment: .leading)
+
+                QuotaMeter(percent: percent, height: 6, monochrome: monochrome)
+                    .opacity(stale ? 0.45 : 1)
+
+                HStack(spacing: 2) {
+                    if Severity(percent: percent) != .healthy {
+                        Image(systemName: Severity.symbol(for: percent))
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(monochrome ? Color.primary
+                                                        : Severity(percent: percent).color)
+                    }
+                    Text("\(Int(percent.rounded()))%")
+                        .font(.system(size: 11, weight: .medium).monospacedDigit())
+                        .lineLimit(1).fixedSize()
+                }
+                .frame(width: 52, alignment: .trailing)
+
+                Text(Countdown.short(until: resets))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(width: 58, alignment: .trailing)
+            }
         }
     }
 }

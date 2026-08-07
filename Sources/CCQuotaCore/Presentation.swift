@@ -8,7 +8,7 @@ import SwiftUI
 /// as adjacent grades would give two levels most people cannot tell apart. Three
 /// well-separated hues carry the grade; the label carries the finer distinction
 /// between "almost out" and "out".
-public enum Severity: Sendable, CaseIterable {
+public enum Severity: Sendable, CaseIterable, Equatable {
     case healthy    // < 50%
     case watch      // 50-84%
     case urgent     // >= 85%
@@ -97,22 +97,31 @@ public enum Countdown {
 public struct QuotaMeter: View {
     private let percent: Double
     private let height: CGFloat
+    private let monochrome: Bool
 
-    public init(percent: Double, height: CGFloat = 5) {
+    public init(percent: Double, height: CGFloat = 5, monochrome: Bool = false) {
         self.percent = percent
         self.height = height
+        self.monochrome = monochrome
+    }
+
+    /// In a desaturating render mode the hue is gone, so the fill has to be the
+    /// full-strength tint rather than a status colour: the system maps colours by
+    /// luminance, and a mid-luminance green lands on the same grey as the 20%
+    /// track — which is exactly how the bar came to read as one flat block.
+    private var inkColor: Color {
+        monochrome ? .primary : Severity(percent: percent).color
     }
 
     public var body: some View {
-        let severity = Severity(percent: percent)
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(severity.color.opacity(0.20))
+                Capsule().fill(inkColor.opacity(monochrome ? 0.22 : 0.20))
                 if percent > 0 {
                     // Floor the fill at its own height so a 1% reading is still a
                     // visible mark rather than a sliver that rounds away.
                     Capsule()
-                        .fill(severity.color)
+                        .fill(inkColor)
                         .frame(width: max(height, geo.size.width * min(percent, 100) / 100))
                 }
             }
@@ -126,10 +135,12 @@ public struct QuotaMeter: View {
 public struct StatusChip: View {
     private let percent: Double
     private let compact: Bool
+    private let monochrome: Bool
 
-    public init(percent: Double, compact: Bool = false) {
+    public init(percent: Double, compact: Bool = false, monochrome: Bool = false) {
         self.percent = percent
         self.compact = compact
+        self.monochrome = monochrome
     }
 
     public var body: some View {
@@ -142,7 +153,7 @@ public struct StatusChip: View {
                     .lineLimit(1)
             }
         }
-        .foregroundStyle(Severity(percent: percent).color)
+        .foregroundStyle(monochrome ? Color.primary : Severity(percent: percent).color)
     }
 }
 

@@ -40,13 +40,25 @@ struct QuotaProvider: TimelineProvider {
 
 struct CCQuotaWidgetView: View {
     @Environment(\.widgetFamily) private var family
+    @Environment(\.widgetRenderingMode) private var renderingMode
     let entry: QuotaEntry
+
+    /// The macOS desktop draws widgets desaturated whenever it is not the focused
+    /// surface, which is most of the time. Hue carries nothing there, so the views
+    /// switch to full-strength ink and lean on shape and the printed number.
+    private var monochrome: Bool { renderingMode != .fullColor }
 
     var body: some View {
         if let accounts = entry.state?.accounts, !accounts.isEmpty {
             switch family {
-            case .systemSmall: SmallView(accounts: accounts)
-            default: MediumView(accounts: accounts, updatedAt: entry.state?.updatedAt)
+            case .systemSmall:
+                SmallView(accounts: accounts, monochrome: monochrome)
+            case .systemLarge:
+                LargeView(accounts: accounts, updatedAt: entry.state?.updatedAt,
+                          monochrome: monochrome)
+            default:
+                MediumView(accounts: accounts, updatedAt: entry.state?.updatedAt,
+                           monochrome: monochrome)
             }
         } else {
             EmptyStateView()
@@ -81,7 +93,7 @@ struct CCQuotaWidget: Widget {
                 .containerBackground(.fill.tertiary, for: .widget)
         }
         .configurationDisplayName("Claude Max 한도")
-        .description("등록된 Claude 계정의 5시간·주간 잔여 한도를 표시합니다.")
-        .supportedFamilies([.systemSmall, .systemMedium])
+        .description("등록된 Claude 계정의 5시간·주간 잔여 한도를 표시합니다. 큰 크기는 초기화 시각까지 함께 보여줍니다.")
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
