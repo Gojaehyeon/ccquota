@@ -1,0 +1,14 @@
+# Build products
+.build/
+build/
+*.xcodeproj/
+DerivedData/
+
+# Tooling state
+.omc/
+.DS_Store
+
+# Never commit credentials. The account store lives in ~/.ccquota by default,
+# but CCQUOTA_HOME can point it anywhere — including here.
+accounts.json
+*.credentials.json

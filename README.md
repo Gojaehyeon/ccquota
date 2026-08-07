@@ -1,0 +1,121 @@
+# CCQuota
+
+여러 Claude Max 구독의 잔여 한도를 한 화면에서 보고, 한도가 찬 계정에서 다음 계정으로 즉시 넘어가기 위한 도구입니다.
+메뉴바 앱 · macOS 위젯 · CLI 세 가지 형태로 같은 데이터를 봅니다.
+
+## 왜 필요한가
+
+Claude Code의 `/usage`는 **현재 로그인된 계정 하나**만 보여줍니다. 구독이 셋이면 나머지 둘의 잔량은 로그인해 보기 전까지 알 수 없습니다.
+CCQuota는 계정별 리프레시 토큰을 보관해 두고, 로그인하지 않은 계정의 한도까지 동시에 조회합니다.
+
+## 동작 방식
+
+```
+Keychain "Claude Code-credentials"   ← claude가 쓰는 실제 로그인 (하나)
+        │  ccquota add / switch
+        ▼
+~/.ccquota/accounts.json (0600)      ← 계정별 자격증명 스냅샷 (셋)
+        │  토큰 갱신 → GET /api/oauth/usage
+        ▼
+App Group state.json                 ← 퍼센트·리셋시각만 (토큰 없음)
+        │
+        ├─ 메뉴바 앱
+        └─ 위젯 (샌드박스, 이 파일만 읽음)
+```
+
+조회에 쓰는 `https://api.anthropic.com/api/oauth/usage`는 `/usage` 명령이 사용하는 것과 같은 엔드포인트입니다.
+문서화되지 않은 엔드포인트이므로 응답 형식이 예고 없이 바뀔 수 있습니다.
+
+## 설치
+
+```bash
+swift build -c release
+install -m 755 .build/release/ccquota /opt/homebrew/bin/ccquota
+
+xcodegen generate
+xcodebuild -project CCQuota.xcodeproj -scheme CCQuota -configuration Release \
+  -destination 'platform=macOS' -derivedDataPath build -allowProvisioningUpdates build
+cp -R build/Build/Products/Release/CCQuota.app /Applications/
+```
+
+`project.yml`의 `DEVELOPMENT_TEAM`과 App Group ID(`RP5GZ99V95.dev.tntlabs.ccquota`)는 서명하는 팀에 맞춰 바꿔야 합니다.
+App Group ID는 `App/CCQuota.entitlements`, `Widget/CCQuotaWidget.entitlements`,
+`Sources/CCQuotaCore/SharedState.swift` 세 곳에서 일치해야 합니다.
+
+## 계정 등록
+
+계정 하나당 한 번씩만 하면 됩니다. 메뉴바 아이콘 → **설정…** 창에서 등록합니다.
+
+1. 터미널에서 `claude` 실행 후 `/logout`
+2. 등록할 계정으로 다시 로그인
+3. 설정 창에 이름(`main`, `work`, `alt` 등)을 적고 **현재 로그인 계정 등록**
+
+등록은 여러 단계에 걸친 작업이라 메뉴바 팝오버가 아니라 별도 창에 두었습니다. 팝오버는 다른 곳을 클릭하면 닫혀 등록 도중 흐름이 끊깁니다.
+
+CLI로도 같은 일을 할 수 있습니다.
+
+```bash
+ccquota add main       # 현재 로그인된 계정을 main으로 등록
+```
+
+등록 후에는 로그아웃 없이 전환합니다. 메뉴바의 **전환** 버튼 또는:
+
+```bash
+ccquota switch work    # 실행 중인 claude 세션은 재시작해야 반영됩니다
+```
+
+## 명령
+
+| 명령 | 설명 |
+|---|---|
+| `ccquota` | 전체 계정 한도 표시 |
+| `ccquota watch [초]` | 주기적 갱신 (기본 180초, 최소 60초) |
+| `ccquota json` | 기계 판독용 출력 |
+| `ccquota add <이름>` | 현재 로그인 계정 등록 |
+| `ccquota switch <이름>` | 로그인 계정 전환 |
+| `ccquota list` / `remove <이름>` | 목록 / 등록 해제 |
+
+## 위젯 추가
+
+메뉴바 앱을 한 번 실행한 뒤, 바탕화면에서 우클릭 → **위젯 편집** → "Claude 한도"를 선택합니다.
+작은 크기는 현재 사용 중인 계정, 중간 크기는 전체 계정을 표시합니다.
+위젯은 앱이 갱신한 값을 읽기만 하므로, 앱이 실행 중이어야 최신 값이 나옵니다.
+
+## 보안
+
+- `~/.ccquota/accounts.json`은 리프레시 토큰을 담으므로 0600으로 생성됩니다. Claude Code가 Linux·Windows에서
+  `~/.claude/.credentials.json`을 다루는 방식과 같습니다. 백업·동기화 폴더에 두지 마십시오.
+- 위젯은 샌드박스에서 실행되며 App Group의 퍼센트 파일만 읽습니다. 토큰에 접근할 경로가 없습니다.
+- `ccquota switch`는 Keychain 항목을 `-A`(모든 앱 접근 허용)로 다시 씁니다. 그렇게 하지 않으면 전환 후
+  `claude`가 실행될 때마다 Keychain 승인 창이 뜹니다. 이 완화가 불편하면 `CCQUOTA_STRICT_ACL=1`을 설정하십시오.
+- 폴링 간격의 하한은 60초입니다. usage 엔드포인트는 `User-Agent: claude-code/<버전>` 없이 호출하면
+  즉시 429를 반환하며, 과도한 폴링도 같은 결과를 냅니다.
+
+## 같은 계정을 두 번 등록하지 마십시오
+
+한 계정을 두 라벨로 등록하면 두 항목이 각자 토큰을 갱신하며 **서로를 무효화**합니다. 결과는 양쪽 모두 401입니다.
+복구하려면 한쪽을 `ccquota remove`로 지우고, 남은 쪽을 재로그인해 다시 등록해야 합니다.
+
+이를 막기 위해 등록 시 `/api/oauth/profile`로 계정 UUID를 확인해 중복을 거부합니다. 토큰 지문은
+재로그인할 때마다 바뀌므로 식별자로 쓸 수 없습니다. `ccquota list`는 계정별 이메일을 함께 표시하며,
+UUID가 겹치는 항목이 있으면 경고합니다.
+
+## 요청 제한 대응
+
+계정이 셋이면 갱신 1회가 요청 3건입니다. 3분 간격이면 평균 60초당 1건으로, 단일 계정 기준의 안전선을
+그대로 소진합니다. 실제로 개발 중 429를 유발했고, 그에 맞춰 다음을 넣었습니다.
+
+- 계정별 요청을 동시에 보내지 않고 1.5초 간격으로 순차 전송합니다.
+- 429가 나면 5분부터 시작해 최대 30분까지 지수적으로 물러섭니다. 물러선 동안의 갱신은 캐시를 반환하며,
+  429를 뚫으려 재요청하지 않습니다.
+- 조회에 실패해도 마지막 성공 값을 시각과 함께 유지하고 흐리게 표시합니다. 값이 사라지지 않습니다.
+- 강제 조회가 필요하면 메뉴바의 갱신 버튼 또는 `ccquota status --force`를 사용하십시오.
+- 메뉴를 열어도 조회하지 않고 캐시를 즉시 표시합니다. 열 때마다 3계정을 재조회하면 5~13초 동안
+  헤더가 스피너로 바뀌고, 한 주기도 지나지 않은 값을 다시 받으려 요청 3건을 쓰게 됩니다.
+  갱신은 주기 타이머와 갱신 버튼만 수행합니다.
+
+## 한계
+
+- 한 시점에 `claude`가 쓰는 계정은 여전히 하나입니다. CCQuota는 전환을 빠르게 할 뿐 동시 사용을 만들지 않습니다.
+- 전환은 Keychain을 바꾸는 것이므로, 이미 실행 중인 `claude` 세션에는 적용되지 않습니다.
+- 리프레시 토큰이 만료되면(`refreshTokenExpiresAt` 경과) 해당 계정으로 로그인해 `ccquota add`를 다시 실행해야 합니다.

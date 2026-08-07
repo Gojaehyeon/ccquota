@@ -1,0 +1,66 @@
+name: CCQuota
+options:
+  bundleIdPrefix: dev.tntlabs
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    DEVELOPMENT_TEAM: RP5GZ99V95
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_STRICT_CONCURRENCY: complete
+
+packages:
+  CCQuotaCore:
+    path: .
+
+targets:
+  # Menu bar app. Not sandboxed: it drives /usr/bin/security to read and swap
+  # the Claude Code credential, which the sandbox would block.
+  CCQuota:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+    dependencies:
+      - package: CCQuotaCore
+        product: CCQuotaCore
+      - target: CCQuotaWidget
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tntlabs.ccquota
+        CODE_SIGN_ENTITLEMENTS: App/CCQuota.entitlements
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: YES
+        INFOPLIST_KEY_LSUIElement: YES
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        GENERATE_INFOPLIST_FILE: YES
+
+  # Widget extensions are always sandboxed, so this target never touches the
+  # Keychain — it only reads the percentages the app publishes to the App Group.
+  CCQuotaWidget:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Widget
+    dependencies:
+      - package: CCQuotaCore
+        product: CCQuotaCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tntlabs.ccquota.widget
+        CODE_SIGN_ENTITLEMENTS: Widget/CCQuotaWidget.entitlements
+        ENABLE_APP_SANDBOX: YES
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Claude 한도
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: Claude 한도
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
