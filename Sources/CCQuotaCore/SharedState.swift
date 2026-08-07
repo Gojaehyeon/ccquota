@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// The hand-off between the menu bar app and the widget.
 ///
@@ -47,11 +48,24 @@ public enum SharedState {
         }
     }
 
+    static let log = Logger(subsystem: "dev.tntlabs.ccquota", category: "SharedState")
+
+    /// Why the diagnostics: the widget runs sandboxed, so a failure here is
+    /// invisible — it just renders an empty card. Naming which URL was tried and
+    /// how it failed is the only way to tell "no accounts registered" apart from
+    /// "cannot reach the App Group container".
     public static func read() -> SharedStateFile? {
-        for url in [containerURL, fallbackURL].compactMap({ $0 }) {
-            if let data = try? Data(contentsOf: url),
-               let state = try? decoder.decode(SharedStateFile.self, from: data) {
+        let container = containerURL
+        log.notice("read: container=\(container?.path ?? "nil", privacy: .public) fallback=\(fallbackURL.path, privacy: .public)")
+
+        for url in [container, fallbackURL].compactMap({ $0 }) {
+            do {
+                let data = try Data(contentsOf: url)
+                let state = try decoder.decode(SharedStateFile.self, from: data)
+                log.notice("read: ok from \(url.path, privacy: .public) accounts=\(state.accounts.count)")
                 return state
+            } catch {
+                log.error("read: \(url.path, privacy: .public) failed — \(error.localizedDescription, privacy: .public)")
             }
         }
         return nil

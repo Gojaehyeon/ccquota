@@ -272,8 +272,12 @@ public struct LargeView: View {
     }
 
     private func section(for account: AccountSnapshot) -> some View {
-        AccountSection(account: account, monochrome: monochrome, showsScopedCaps: false)
-            .padding(.vertical, 7)
+        // The per-model caps are a separate limit from the overall weekly one, so
+        // they are worth the space whenever there is space. At four accounts the
+        // extra row per section would push the last one off the card.
+        AccountSection(account: account, monochrome: monochrome,
+                       showsScopedCaps: visible.count <= 3)
+            .padding(.vertical, 6)
     }
 }
 

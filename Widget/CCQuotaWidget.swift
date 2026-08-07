@@ -64,21 +64,29 @@ struct CCQuotaWidgetView: View {
                            monochrome: monochrome)
             }
         } else {
-            EmptyStateView()
+            EmptyStateView(reachedData: entry.state != nil)
         }
     }
 }
 
+/// Two different failures used to render the same blank card: no accounts
+/// registered, and the widget being unable to reach the shared file at all.
+/// They need different actions from the reader, so they say different things.
 private struct EmptyStateView: View {
+    let reachedData: Bool
+
     var body: some View {
         VStack(spacing: 6) {
-            Image(systemName: "gauge.with.dots.needle.bottom.50percent")
-                .font(.title2).foregroundStyle(.tertiary)
-            Text("CCQuota를 실행하고\n계정을 등록하십시오")
-                .font(.caption2).multilineTextAlignment(.center)
+            Image(systemName: reachedData ? "person.crop.circle.badge.plus"
+                                          : "exclamationmark.triangle")
+                .font(.title2).foregroundStyle(.secondary)
+            Text(reachedData ? "설정에서 계정을 등록하십시오"
+                             : "CCQuota 앱을 실행하십시오")
+                .font(.caption).multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(8)
     }
 }
 
