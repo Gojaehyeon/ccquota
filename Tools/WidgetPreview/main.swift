@@ -46,6 +46,9 @@ if accounts.isEmpty {
 // A synthetic worst case, so the urgent grade and a full bar get reviewed too.
 var hot = AccountSnapshot(label: "verylongaccountname", isActive: false)
 hot.fiveHourPercent = 97; hot.weeklyPercent = 100
+var hot2 = AccountSnapshot(label: "sixthaccount", isActive: false)
+hot2.fiveHourPercent = 88; hot2.weeklyPercent = 92
+hot2.scopedWeekly = [.init(model: "Fable", percent: 95, resetsAt: Date().addingTimeInterval(86400 * 3))]
 var stale = AccountSnapshot(label: "stalefeed", isActive: false)
 stale.fiveHourPercent = 58; stale.weeklyPercent = 61; stale.isStale = true
 stale.error = "인증 만료"
@@ -82,5 +85,15 @@ MainActor.assumeIsolated {
         render(LargeView(accounts: accounts, updatedAt: Date(), monochrome: true).grayscale(1),
                size: CGSize(width: 329, height: 345), dark: dark,
                to: "\(out)/large-mono-\(tag).png")
+
+        render(ExtraLargeView(accounts: accounts, updatedAt: Date()),
+               size: CGSize(width: 682, height: 345), dark: dark,
+               to: "\(out)/xlarge-\(tag).png")
+        render(ExtraLargeView(accounts: accounts + [hot, stale, hot2], updatedAt: Date()),
+               size: CGSize(width: 682, height: 345), dark: dark,
+               to: "\(out)/xlarge-edge-\(tag).png")
+        render(ExtraLargeView(accounts: accounts, updatedAt: Date(), monochrome: true).grayscale(1),
+               size: CGSize(width: 682, height: 345), dark: dark,
+               to: "\(out)/xlarge-mono-\(tag).png")
     }
 }

@@ -56,6 +56,9 @@ struct CCQuotaWidgetView: View {
             case .systemLarge:
                 LargeView(accounts: accounts, updatedAt: entry.state?.updatedAt,
                           monochrome: monochrome)
+            case .systemExtraLarge:
+                ExtraLargeView(accounts: accounts, updatedAt: entry.state?.updatedAt,
+                               monochrome: monochrome)
             default:
                 MediumView(accounts: accounts, updatedAt: entry.state?.updatedAt,
                            monochrome: monochrome)
@@ -93,7 +96,7 @@ struct CCQuotaWidget: Widget {
                 .containerBackground(.fill.tertiary, for: .widget)
         }
         .configurationDisplayName("Claude Max 한도")
-        .description("등록된 Claude 계정의 5시간·주간 잔여 한도를 표시합니다. 큰 크기는 초기화 시각까지 함께 보여줍니다.")
-        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+        .description("등록된 Claude 계정의 5시간·주간 잔여 한도를 표시합니다. 큰 크기는 초기화 시각을, 가장 큰 크기는 모델별 주간 한도까지 함께 보여줍니다.")
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .systemExtraLarge])
     }
 }

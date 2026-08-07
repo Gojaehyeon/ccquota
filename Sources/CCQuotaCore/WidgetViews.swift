@@ -272,6 +272,23 @@ public struct LargeView: View {
     }
 
     private func section(for account: AccountSnapshot) -> some View {
+        AccountSection(account: account, monochrome: monochrome, showsScopedCaps: false)
+            .padding(.vertical, 7)
+    }
+}
+
+/// One account with its windows spelled out. Shared by the large and extra-large
+/// families, which differ only in whether the per-model weekly caps fit.
+struct AccountSection: View {
+    let account: AccountSnapshot
+    let monochrome: Bool
+    let showsScopedCaps: Bool
+    /// Labels are chosen by the user and can be near-identical (`tntlabgo` and
+    /// `teamtntlabs` are different accounts). Where the space exists, the email
+    /// is what actually tells them apart.
+    var showsEmail: Bool = false
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 5) {
                 Circle()
@@ -291,6 +308,14 @@ public struct LargeView: View {
                 }
             }
 
+            if showsEmail, let email = account.email {
+                Text(email)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+                    .padding(.leading, 10)
+            }
+
             if let error = account.error, !account.isStale {
                 Text(error).font(.system(size: 10)).foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -301,9 +326,19 @@ public struct LargeView: View {
                 DetailMeterRow(title: "주간", percent: account.weeklyPercent,
                                resets: account.weeklyResetsAt,
                                stale: account.isStale, monochrome: monochrome)
+                if showsScopedCaps {
+                    // The per-model weekly caps exist on every account but fit
+                    // nowhere smaller. They are a separate limit from the overall
+                    // weekly one, so an account can be fine on one and out on the other.
+                    ForEach(account.scopedWeekly, id: \.model) { scoped in
+                        DetailMeterRow(title: "└ \(scoped.model)", percent: scoped.percent,
+                                       resets: scoped.resetsAt,
+                                       stale: account.isStale, monochrome: monochrome,
+                                       indented: true)
+                    }
+                }
             }
         }
-        .padding(.vertical, 7)
     }
 }
 
@@ -315,14 +350,15 @@ private struct DetailMeterRow: View {
     let resets: Date?
     let stale: Bool
     let monochrome: Bool
+    var indented = false
 
     var body: some View {
         if let percent {
             HStack(spacing: 6) {
                 Text(title)
-                    .font(.system(size: 11))
+                    .font(.system(size: indented ? 10 : 11))
                     .foregroundStyle(.secondary)
-                    .frame(width: 36, alignment: .leading)
+                    .frame(width: 52, alignment: .leading)
 
                 QuotaMeter(percent: percent, height: 6, monochrome: monochrome)
                     .opacity(stale ? 0.45 : 1)
@@ -345,6 +381,95 @@ private struct DetailMeterRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .frame(width: 58, alignment: .trailing)
+            }
+        }
+    }
+}
+
+// MARK: - Extra large: two columns, every limit spelled out
+
+/// The widest family macOS offers (682×345). The extra width buys two columns
+/// rather than bigger type, and the extra room finally fits the per-model weekly
+/// caps — a separate limit that no other size could show, and one an account can
+/// hit while its overall weekly figure still looks healthy.
+public struct ExtraLargeView: View {
+    let accounts: [AccountSnapshot]
+    let updatedAt: Date?
+    let monochrome: Bool
+
+    public init(accounts: [AccountSnapshot], updatedAt: Date?, monochrome: Bool = false) {
+        self.accounts = accounts
+        self.updatedAt = updatedAt
+        self.monochrome = monochrome
+    }
+
+    private var visible: [AccountSnapshot] { Array(displayOrder(accounts).prefix(6)) }
+    private var hidden: Int { max(0, accounts.count - 6) }
+
+    /// Rows of two. Built explicitly rather than with a grid so each row can
+    /// stretch to share the height evenly whatever the account count.
+    private var rows: [[AccountSnapshot]] {
+        stride(from: 0, to: visible.count, by: 2).map {
+            Array(visible[$0 ..< min($0 + 2, visible.count)])
+        }
+    }
+
+    private var recommendation: AccountSnapshot? {
+        let usable = visible.filter { $0.error == nil && ($0.headlinePercent ?? 100) < 100 }
+        guard let best = usable.min(by: { ($0.headlinePercent ?? 100) < ($1.headlinePercent ?? 100) }),
+              !best.isActive else { return nil }
+        return best
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider().padding(.top, 5)
+
+            VStack(spacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { index, pair in
+                    if index > 0 { Divider() }
+                    HStack(alignment: .center, spacing: 22) {
+                        ForEach(pair) { account in
+                            AccountSection(account: account, monochrome: monochrome,
+                                           showsScopedCaps: true,
+                                           showsEmail: visible.count <= 4)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        // Keeps a lone account in the left column at the same
+                        // width as the paired rows above it.
+                        if pair.count == 1 { Color.clear.frame(maxWidth: .infinity) }
+                    }
+                    .padding(.vertical, 8)
+                    .frame(maxHeight: .infinity)
+                }
+            }
+            .frame(maxHeight: .infinity)
+
+            if hidden > 0 {
+                Text("외 \(hidden)개 계정 — 앱에서 확인")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text("Claude Max 한도").font(.system(size: 15, weight: .semibold))
+
+            if let best = recommendation, let percent = best.headlinePercent {
+                Text("여유 최다 \(best.label) · \(Int(percent.rounded()))%")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            if let updatedAt {
+                Text(updatedAt, style: .time)
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
             }
         }
     }
