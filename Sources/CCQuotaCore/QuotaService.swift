@@ -82,6 +82,8 @@ public struct QuotaService: Sendable {
         var snapshot: AccountSnapshot
         var updatedEntry: AccountStore.Entry?
         var wasRateLimited: Bool
+        /// Seconds the server itself asked us to wait, when it said so.
+        var retryAfterHint: Double?
     }
 
     private func snapshot(for entry: AccountStore.Entry, isActive: Bool) async -> PollResult {
@@ -129,8 +131,10 @@ public struct QuotaService: Sendable {
             return PollResult(snapshot: snap, updatedEntry: updated, wasRateLimited: false)
         } catch {
             snap.error = error.localizedDescription
+            let limited = error as? RateLimited
             return PollResult(snapshot: snap, updatedEntry: nil,
-                              wasRateLimited: error is RateLimited)
+                              wasRateLimited: limited != nil,
+                              retryAfterHint: limited?.retryAfterSeconds)
         }
     }
 
@@ -163,10 +167,30 @@ public struct QuotaService: Sendable {
         // than the few seconds saved, and three accounts still finish in ~5s.
         var results: [PollResult] = []
         var rateLimited = false
+        var serverHint: Double?
         for (index, entry) in store.accounts.enumerated() {
             if index > 0 { try? await Task.sleep(for: Self.requestSpacing) }
             let result = await snapshot(for: entry, isActive: entry.label == active)
-            if result.wasRateLimited { rateLimited = true }
+            if result.wasRateLimited {
+                rateLimited = true
+                // Stop the sweep at the first refusal. Continuing to ask the
+                // remaining accounts only deepens the limit we just hit.
+                if let hint = result.retryAfterHint {
+                    serverHint = max(serverHint ?? 0, hint)
+                }
+                results.append(result)
+                for remaining in store.accounts.dropFirst(index + 1) {
+                    var skipped = AccountSnapshot(label: remaining.label,
+                                                  isActive: remaining.label == active)
+                    skipped.plan = remaining.blob.oauth?.subscriptionType
+                    skipped.tier = remaining.tier
+                    skipped.email = remaining.email
+                    skipped.error = "요청 제한으로 조회를 건너뛰었습니다"
+                    results.append(PollResult(snapshot: skipped, updatedEntry: nil,
+                                              wasRateLimited: false, retryAfterHint: nil))
+                }
+                break
+            }
             results.append(result)
         }
 
@@ -199,8 +223,8 @@ public struct QuotaService: Sendable {
         var retryAfter: Date?
         if rateLimited {
             strikes = (previous?.rateLimitStrikes ?? 0) + 1
-            let delay = min(300.0 * pow(2, Double(strikes - 1)), 1800)
-            retryAfter = Date().addingTimeInterval(delay)
+            let backoff = min(300.0 * pow(2, Double(strikes - 1)), 1800)
+            retryAfter = Date().addingTimeInterval(max(backoff, serverHint ?? 0))
         }
 
         let state = SharedStateFile(updatedAt: Date(), accounts: merged,

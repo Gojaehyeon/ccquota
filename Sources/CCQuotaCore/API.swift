@@ -105,10 +105,19 @@ public enum ClaudeAPI {
         req.timeoutInterval = 20
 
         let (data, response) = try await URLSession.shared.data(for: req)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+        let http = response as? HTTPURLResponse
+
+        // The token endpoint rate-limits separately from the usage endpoint, and
+        // this path used to raise a plain error — so the backoff never engaged
+        // and every poll retried the refresh, holding the limit open. Two
+        // accounts sat rate-limited for twelve hours that way.
+        if http?.statusCode == 429 {
+            throw RateLimited(retryAfterSeconds:
+                http?.value(forHTTPHeaderField: "retry-after").flatMap(Double.init))
+        }
+        guard http?.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? ""
-            throw CCError("토큰 갱신 실패 (HTTP \(code)): \(body.prefix(200))")
+            throw CCError("토큰 갱신 실패 (HTTP \(http?.statusCode ?? -1)): \(body.prefix(200))")
         }
         guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let access = obj["access_token"] as? String else {
