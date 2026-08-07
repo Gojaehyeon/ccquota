@@ -29,14 +29,12 @@ App Group state.json                 ← 퍼센트·리셋시각만 (토큰 없�
 ## 설치
 
 ```bash
-swift build -c release
-install -m 755 .build/release/ccquota /opt/homebrew/bin/ccquota
-
-xcodegen generate
-xcodebuild -project CCQuota.xcodeproj -scheme CCQuota -configuration Release \
-  -destination 'platform=macOS' -derivedDataPath build -allowProvisioningUpdates build
-cp -R build/Build/Products/Release/CCQuota.app /Applications/
+./scripts/install.sh
 ```
+
+**업데이트할 때 `rm -rf`로 앱을 지우고 다시 복사하지 마십시오.** 번들이 사라지는 순간 시스템에 등록된
+위젯 확장도 함께 사라지고, 바탕화면에 배치해 둔 위젯은 그 확장을 가리키고 있으므로 같이 제거됩니다.
+설치 스크립트는 `ditto`로 내용만 덮어써서 번들이 한 번도 없어지지 않게 합니다.
 
 `project.yml`의 `DEVELOPMENT_TEAM`과 App Group ID(`RP5GZ99V95.dev.tntlabs.ccquota`)는 서명하는 팀에 맞춰 바꿔야 합니다.
 App Group ID는 `App/CCQuota.entitlements`, `Widget/CCQuotaWidget.entitlements`,
@@ -87,6 +85,14 @@ ccquota switch work    # 실행 중인 claude 세션은 재시작해야 반영�
   계정이 4개 이하면 이름 아래에 이메일도 함께 보여줍니다 — 라벨은 사용자가 붙이는 이름이라
   `tntlabgo`와 `teamtntlabs`처럼 비슷해질 수 있고, 그때 실제로 구분해 주는 것은 이메일입니다.
 위젯은 앱이 갱신한 값을 읽기만 하므로, 앱이 실행 중이어야 최신 값이 나옵니다.
+
+갤러리에 위젯이 보이지 않으면 위젯 데몬을 다시 띄우십시오. 이 데몬은 권한이 필요해 스크립트가 대신 처리하지 못합니다.
+
+```bash
+sudo killall chronod
+```
+
+그래도 없으면 로그아웃 후 다시 로그인하면 반영됩니다.
 
 ## 보안
 
