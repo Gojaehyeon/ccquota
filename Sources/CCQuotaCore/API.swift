@@ -46,8 +46,9 @@ public enum ClaudeAPI {
         case 401:
             throw CCError(Self.reauthMessage)
         case 429:
-            throw RateLimited(retryAfterSeconds: http.value(forHTTPHeaderField: "retry-after")
-                .flatMap(Double.init))
+            throw RateLimited(scope: .usage,
+                              retryAfterSeconds: http.value(forHTTPHeaderField: "retry-after")
+                                  .flatMap(Double.init))
         default:
             let body = String(data: data, encoding: .utf8) ?? ""
             throw CCError("usage 요청 실패 (HTTP \(http.statusCode)): \(body.prefix(200))")
@@ -73,7 +74,7 @@ public enum ClaudeAPI {
 
         let (data, response) = try await URLSession.shared.data(for: req)
         let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-        if code == 429 { throw RateLimited(retryAfterSeconds: nil) }
+        if code == 429 { throw RateLimited(scope: .usage, retryAfterSeconds: nil) }
         if code == 401 { throw CCError(Self.reauthMessage) }
         guard code == 200,
               let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -82,6 +83,28 @@ public enum ClaudeAPI {
             throw CCError("계정 정보를 확인하지 못했습니다 (HTTP \(code)).")
         }
         return Profile(uuid: uuid, email: account["email"] as? String)
+    }
+
+    /// Asks the token endpoint a question it will refuse anyway, using a token
+    /// that is deliberately invalid. A 429 means the caller is still blocked; any
+    /// other status means the block has lifted and requests reach validation
+    /// again. Nothing real is sent, so no stored credential can be rotated or
+    /// spent by checking.
+    public static func probeAuthEndpoint() async throws -> (blocked: Bool, status: Int) {
+        var req = URLRequest(url: tokenURL)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "grant_type": "refresh_token",
+            "refresh_token": "ccquota-probe-not-a-real-token",
+            "client_id": clientID,
+        ])
+        req.timeoutInterval = 20
+
+        let (_, response) = try await URLSession.shared.data(for: req)
+        let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+        return (blocked: code == 429, status: code)
     }
 
     // MARK: - Token refresh
@@ -112,7 +135,7 @@ public enum ClaudeAPI {
         // and every poll retried the refresh, holding the limit open. Two
         // accounts sat rate-limited for twelve hours that way.
         if http?.statusCode == 429 {
-            throw RateLimited(retryAfterSeconds:
+            throw RateLimited(scope: .auth, retryAfterSeconds:
                 http?.value(forHTTPHeaderField: "retry-after").flatMap(Double.init))
         }
         guard http?.statusCode == 200 else {

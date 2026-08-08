@@ -222,9 +222,37 @@ public struct CCError: LocalizedError, Sendable {
 /// Distinguished from a generic failure because it drives the backoff: polling
 /// through a 429 is what keeps a rate limit alive.
 public struct RateLimited: LocalizedError, Sendable {
+    /// Which endpoint refused us. They behave very differently: the usage
+    /// endpoint clears in minutes, while the OAuth token endpoint applies a
+    /// block that has been observed to last most of a day. Backing off from the
+    /// second on a minutes-long schedule keeps poking a door that stays shut.
+    public enum Scope: Sendable { case usage, auth }
+
+    public let scope: Scope
     public let retryAfterSeconds: Double?
-    public init(retryAfterSeconds: Double?) { self.retryAfterSeconds = retryAfterSeconds }
-    public var errorDescription: String? { "요청 제한 (429) — 잠시 조회를 멈춥니다" }
+
+    public init(scope: Scope, retryAfterSeconds: Double?) {
+        self.scope = scope
+        self.retryAfterSeconds = retryAfterSeconds
+    }
+
+    public var errorDescription: String? {
+        switch scope {
+        case .usage: "요청 제한 (429) — 잠시 조회를 멈춥니다"
+        case .auth:  "토큰 갱신이 요청 제한에 걸렸습니다 — 길게 물러섭니다"
+        }
+    }
+
+    /// The token endpoint refuses even an invalid token, so the limit sits ahead
+    /// of credential checks — it is scoped to the caller, not the account, and
+    /// it is the same endpoint `claude` itself refreshes through. Retrying it
+    /// briskly risks the user's own login, so this schedule is deliberately slow.
+    public var backoffSchedule: (first: TimeInterval, cap: TimeInterval) {
+        switch scope {
+        case .usage: (300, 1800)          // 5분 → 30분
+        case .auth:  (1800, 6 * 3600)     // 30분 → 6시간
+        }
+    }
 }
 
 enum DateParse {

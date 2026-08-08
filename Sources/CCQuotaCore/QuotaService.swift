@@ -84,6 +84,7 @@ public struct QuotaService: Sendable {
         var wasRateLimited: Bool
         /// Seconds the server itself asked us to wait, when it said so.
         var retryAfterHint: Double?
+        var limitScope: RateLimited.Scope?
     }
 
     private func snapshot(for entry: AccountStore.Entry, isActive: Bool) async -> PollResult {
@@ -134,7 +135,8 @@ public struct QuotaService: Sendable {
             let limited = error as? RateLimited
             return PollResult(snapshot: snap, updatedEntry: nil,
                               wasRateLimited: limited != nil,
-                              retryAfterHint: limited?.retryAfterSeconds)
+                              retryAfterHint: limited?.retryAfterSeconds,
+                              limitScope: limited?.scope)
         }
     }
 
@@ -168,6 +170,7 @@ public struct QuotaService: Sendable {
         var results: [PollResult] = []
         var rateLimited = false
         var serverHint: Double?
+        var limitScope: RateLimited.Scope = .usage
         for (index, entry) in store.accounts.enumerated() {
             if index > 0 { try? await Task.sleep(for: Self.requestSpacing) }
             let result = await snapshot(for: entry, isActive: entry.label == active)
@@ -178,6 +181,7 @@ public struct QuotaService: Sendable {
                 if let hint = result.retryAfterHint {
                     serverHint = max(serverHint ?? 0, hint)
                 }
+                limitScope = result.limitScope ?? .usage
                 results.append(result)
                 for remaining in store.accounts.dropFirst(index + 1) {
                     var skipped = AccountSnapshot(label: remaining.label,
@@ -190,7 +194,8 @@ public struct QuotaService: Sendable {
                     // the data under identical warnings.
                     skipped.isStale = true
                     results.append(PollResult(snapshot: skipped, updatedEntry: nil,
-                                              wasRateLimited: false, retryAfterHint: nil))
+                                              wasRateLimited: false, retryAfterHint: nil,
+                                              limitScope: nil))
                 }
                 break
             }
@@ -230,7 +235,8 @@ public struct QuotaService: Sendable {
         var retryAfter: Date?
         if rateLimited {
             strikes = (previous?.rateLimitStrikes ?? 0) + 1
-            let backoff = min(300.0 * pow(2, Double(strikes - 1)), 1800)
+            let schedule = RateLimited(scope: limitScope, retryAfterSeconds: nil).backoffSchedule
+            let backoff = min(schedule.first * pow(2, Double(strikes - 1)), schedule.cap)
             retryAfter = Date().addingTimeInterval(max(backoff, serverHint ?? 0))
         }
 

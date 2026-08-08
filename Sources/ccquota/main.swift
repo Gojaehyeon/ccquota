@@ -8,6 +8,7 @@ ccquota — Claude Max 다중 계정 한도 모니터
   ccquota status              위와 동일
   ccquota json                기계 판독용 JSON 출력
   ccquota watch [초]          주기적 갱신 (기본 180초, 최소 60초)
+  ccquota probe               토큰 엔드포인트 제한이 풀렸는지 확인 (요청 1회, 안전)
   ccquota add <이름>          현재 로그인된 계정을 <이름>으로 등록
   ccquota list                등록된 계정 목록
   ccquota switch <이름>       로그인 계정 전환
@@ -179,6 +180,16 @@ do {
         let label = requireLabel("switch")
         try await service.switchTo(label: label)
         print(color("✓", "32") + " '\(label)' 계정으로 전환했습니다. 실행 중인 claude 세션은 재시작해야 적용됩니다.")
+
+    case "probe":
+        // One request, with a token that cannot work, purely to ask whether the
+        // endpoint is accepting calls again. Safe to run while blocked.
+        let result = try await ClaudeAPI.probeAuthEndpoint()
+        if result.blocked {
+            print(color("여전히 요청 제한 상태입니다 (429). 더 기다리십시오.", "33"))
+        } else {
+            print(color("✓", "32") + " 제한이 풀렸습니다 (HTTP \(result.status)). `ccquota status --force`로 조회하십시오.")
+        }
 
     case "json":
         let state = try await service.poll()
