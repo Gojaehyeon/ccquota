@@ -4,9 +4,12 @@ public enum ClaudeAPI {
     /// Claude Code's own OAuth client id — the refresh grant is rejected without it.
     public static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
-    // The host the installed CLI actually refreshes against. The older
-    // console.anthropic.com address still answers, but this is the current one.
-    public static let tokenURL = URL(string: "https://platform.claude.com/v1/oauth/token")!
+    /// Verified by elimination: this host answers a bad grant with `400
+    /// invalid_grant`, meaning the request reaches grant validation. The hosts
+    /// tried before it — console.anthropic.com, platform.claude.com, claude.ai —
+    /// all answer `429 rate_limit_error` for requests they do not serve, which
+    /// is what made a wrong address look for days like a rate limit.
+    public static let tokenURL = URL(string: "https://api.anthropic.com/v1/oauth/token")!
     static let betaHeader = "oauth-2025-04-20"
 
     /// A 401 here is not transient — the stored token has been superseded, and
@@ -112,13 +115,14 @@ public enum ClaudeAPI {
         let (data, response) = try await URLSession.shared.data(for: req)
         let http = response as? HTTPURLResponse
 
-        // A dead refresh token comes back as 429 `rate_limit_error`, the same
-        // shape a genuine rate limit uses — verified by sending a token that
-        // could not possibly be valid and getting exactly this. It is a
-        // credential problem, not a traffic one, so it must not drive a backoff:
-        // no amount of waiting revives a superseded token.
-        if let code = http?.statusCode, code == 429 || code == 400 || code == 401 {
+        // With the right host these separate cleanly again: a superseded token
+        // is `400 invalid_grant`, and 429 means what it says.
+        if let code = http?.statusCode, code == 400 || code == 401 {
             throw CredentialRejected(label: label)
+        }
+        if http?.statusCode == 429 {
+            throw RateLimited(scope: .auth, retryAfterSeconds:
+                http?.value(forHTTPHeaderField: "retry-after").flatMap(Double.init))
         }
         guard http?.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? ""
