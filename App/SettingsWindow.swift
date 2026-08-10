@@ -8,6 +8,7 @@ import SwiftUI
 struct SettingsWindow: View {
     @Bindable var model: QuotaModel
     @State private var newLabel = ""
+    @State private var pastedCode = ""
     @State private var registering = false
 
     var body: some View {
@@ -28,11 +29,8 @@ struct SettingsWindow: View {
             Text("계정 등록").font(.headline)
 
             Text("""
-            Claude Code에 로그인된 계정을 CCQuota에 등록합니다. 계정마다 한 번씩만 하면 됩니다.
-
-            1. 터미널에서 `claude` 실행 후 `/logout`
-            2. 등록할 계정으로 다시 로그인
-            3. 아래에 이름을 적고 등록
+            이름을 정하고 브라우저에서 승인하면 등록됩니다. 계정마다 한 번씩만 하면 됩니다.
+            여기서 받은 토큰은 CCQuota 전용이라, 이후 claude에서 로그인하거나 로그아웃해도 영향받지 않습니다.
             """)
             .font(.callout)
             .foregroundStyle(.secondary)
@@ -41,11 +39,40 @@ struct SettingsWindow: View {
             HStack {
                 TextField("계정 이름 (예: main, work, alt)", text: $newLabel)
                     .textFieldStyle(.roundedBorder)
-                    .onSubmit(register)
-                Button(registering ? "등록 중…" : "현재 로그인 계정 등록", action: register)
+                    .disabled(model.pendingLogin != nil)
+                Button("브라우저에서 승인") { model.beginBrowserLogin() }
                     .buttonStyle(.borderedProminent)
-                    .disabled(newLabel.trimmingCharacters(in: .whitespaces).isEmpty || registering)
+                    .disabled(newLabel.trimmingCharacters(in: .whitespaces).isEmpty
+                              || model.pendingLogin != nil)
             }
+
+            if model.pendingLogin != nil {
+                HStack {
+                    TextField("승인 후 표시되는 코드를 붙여넣으십시오", text: $pastedCode)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(completeLogin)
+                    Button(registering ? "확인 중…" : "완료", action: completeLogin)
+                        .disabled(pastedCode.trimmingCharacters(in: .whitespaces).isEmpty || registering)
+                    Button("취소") {
+                        model.cancelBrowserLogin()
+                        pastedCode = ""
+                    }
+                }
+            }
+
+            DisclosureGroup("claude 로그인에서 가져오기") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("현재 claude에 로그인된 계정의 자격증명을 복사합니다. 승인 절차가 없어 빠르지만, "
+                         + "claude와 토큰 한 벌을 공유하므로 어느 한쪽이 갱신하면 다른 쪽이 무효화됩니다.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("현재 claude 로그인 계정 등록", action: register)
+                        .controlSize(.small)
+                        .disabled(newLabel.trimmingCharacters(in: .whitespaces).isEmpty || registering)
+                }
+                .padding(.top, 4)
+            }
+            .font(.caption)
 
             if let error = model.lastError {
                 Label(error, systemImage: "exclamationmark.triangle")
@@ -54,6 +81,15 @@ struct SettingsWindow: View {
             }
         }
         .padding(16)
+    }
+
+    private func completeLogin() {
+        registering = true
+        Task {
+            await model.completeBrowserLogin(label: newLabel, pastedCode: pastedCode)
+            registering = false
+            if model.lastError == nil { newLabel = ""; pastedCode = "" }
+        }
     }
 
     private func register() {

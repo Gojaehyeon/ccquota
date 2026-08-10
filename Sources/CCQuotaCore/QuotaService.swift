@@ -274,6 +274,28 @@ public struct QuotaService: Sendable {
 
     // MARK: - Registration and switching
 
+    /// Registers an account from a browser authorisation instead of from the
+    /// Keychain. The resulting grant is CCQuota's own, so `claude` logging in or
+    /// out later cannot invalidate it — which is the failure the Keychain route
+    /// cannot avoid, since both sides then share and rotate one token pair.
+    public func addAccount(label: String, oauth: ClaudeAiOAuth) async throws {
+        let profile = try await ClaudeAPI.fetchProfile(accessToken: oauth.accessToken)
+
+        var store = try AccountStore.load()
+        if let clash = store.accounts.first(where: {
+            $0.accountUUID == profile.uuid && $0.label != label
+        }) {
+            throw CCError("이 계정(\(profile.email ?? profile.uuid))은 이미 '\(clash.label)'로 등록되어 있습니다.")
+        }
+
+        var blob = try Keychain.emptyBlob()
+        try blob.setOAuth(oauth)
+        store[label] = AccountStore.Entry(label: label, blob: blob, tier: oauth.rateLimitTier,
+                                          accountUUID: profile.uuid, email: profile.email,
+                                          refreshBlockedUntil: nil)
+        try store.save()
+    }
+
     /// Captures whatever account is logged in right now under `label`.
     ///
     /// Identity comes from the profile endpoint, not from the token: registering

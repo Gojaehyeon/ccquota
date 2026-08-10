@@ -13,6 +13,12 @@ public enum Keychain {
         ProcessInfo.processInfo.environment["USER"] ?? NSUserName()
     }
 
+    /// A credential shell for accounts registered by browser authorisation,
+    /// which have no Keychain entry to copy from.
+    public static func emptyBlob() throws -> CredentialBlob {
+        try CredentialBlob(json: Data("{}".utf8))
+    }
+
     public static func readLiveCredential() throws -> CredentialBlob {
         let out = try Shell.run(
             "/usr/bin/security",
@@ -41,9 +47,15 @@ public enum Keychain {
     }
 }
 
-enum Shell {
+public enum Shell {
+    /// Opens a URL in the user's browser.
     @discardableResult
-    static func run(_ launchPath: String, _ args: [String]) throws -> String {
+    public static func open(_ url: URL) throws -> String {
+        try run("/usr/bin/open", [url.absoluteString])
+    }
+
+    @discardableResult
+    public static func run(_ launchPath: String, _ args: [String]) throws -> String {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: launchPath)
         proc.arguments = args

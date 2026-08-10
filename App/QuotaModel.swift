@@ -117,6 +117,38 @@ final class QuotaModel {
         }
     }
 
+    /// Browser authorisation, kept as two steps so the view can show the code
+    /// field only once the browser has actually been sent somewhere.
+    private(set) var pendingLogin: OAuthFlow.Pending?
+
+    func beginBrowserLogin() {
+        do {
+            let pending = try OAuthFlow.begin()
+            pendingLogin = pending
+            lastError = nil
+            try Shell.open(pending.url)
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func cancelBrowserLogin() { pendingLogin = nil }
+
+    func completeBrowserLogin(label: String, pastedCode: String) async {
+        let trimmedLabel = label.trimmingCharacters(in: .whitespaces)
+        guard let pending = pendingLogin, !trimmedLabel.isEmpty else { return }
+        do {
+            let parsed = OAuthFlow.parsePasted(pastedCode)
+            let oauth = try await OAuthFlow.exchange(code: parsed.code, pending: pending)
+            try await service.addAccount(label: trimmedLabel, oauth: oauth)
+            pendingLogin = nil
+            lastError = nil
+            await refresh(force: true)
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
     /// Captures whatever account `claude` is currently logged in as.
     func registerCurrent(as label: String) async {
         let trimmed = label.trimmingCharacters(in: .whitespaces)

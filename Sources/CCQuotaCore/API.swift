@@ -2,11 +2,11 @@ import Foundation
 
 public enum ClaudeAPI {
     /// Claude Code's own OAuth client id — the refresh grant is rejected without it.
-    static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+    public static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
     // The host the installed CLI actually refreshes against. The older
     // console.anthropic.com address still answers, but this is the current one.
-    static let tokenURL = URL(string: "https://platform.claude.com/v1/oauth/token")!
+    public static let tokenURL = URL(string: "https://platform.claude.com/v1/oauth/token")!
     static let betaHeader = "oauth-2025-04-20"
 
     /// A 401 here is not transient — the stored token has been superseded, and
