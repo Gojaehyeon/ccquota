@@ -11,7 +11,15 @@ import Foundation
 /// rate limit. A grant obtained here is CCQuota's own: `claude` can log in and
 /// out as much as it likes without touching it.
 public enum OAuthFlow {
-    static let authorizeURL = "https://platform.claude.com/oauth/authorize"
+    /// The subscription sign-in, which is what a Max account needs. The CLI
+    /// carries both this and a `platform.claude.com/oauth/authorize` address and
+    /// picks between them by login method — `claudeai` versus `console`. The
+    /// console one opens the API-platform sign-in instead, which is the wrong
+    /// door for a subscription and simply will not show the expected login.
+    static let authorizeURL = "https://claude.com/cai/oauth/authorize"
+
+    /// Kept for the API-platform account type, not used by this tool.
+    static let consoleAuthorizeURL = "https://platform.claude.com/oauth/authorize"
     public static let redirectURI = "https://platform.claude.com/oauth/code/callback"
 
     /// The same scopes `claude` requests. Anything narrower would monitor fine
