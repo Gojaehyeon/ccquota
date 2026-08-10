@@ -16,14 +16,21 @@ public struct AccountStore: Codable, Sendable {
         /// this is the only safe key for "is this the same account".
         public var accountUUID: String?
         public var email: String?
+        /// Set after the token endpoint rejects this account's refresh token.
+        /// A rejection is permanent until the user re-registers, so retrying it
+        /// on every poll is pure waste — this is the invariant that makes a
+        /// retry loop against the auth endpoint structurally impossible.
+        public var refreshBlockedUntil: Date?
 
         public init(label: String, blob: CredentialBlob, tier: String?,
-                    accountUUID: String? = nil, email: String? = nil) {
+                    accountUUID: String? = nil, email: String? = nil,
+                    refreshBlockedUntil: Date? = nil) {
             self.label = label
             self.blob = blob
             self.tier = tier
             self.accountUUID = accountUUID
             self.email = email
+            self.refreshBlockedUntil = refreshBlockedUntil
         }
     }
 

@@ -10,9 +10,11 @@ final class QuotaModel {
     private(set) var isRefreshing = false
     private(set) var lastError: String?
 
-    /// 180s matches the interval the usage endpoint tolerates comfortably; going
-    /// faster buys nothing and risks a 429 that blanks every account at once.
-    var interval: TimeInterval = 180 {
+    /// The idle heartbeat. Quota figures only move when Claude is used, so this
+    /// is the rate at which the app re-checks numbers that cannot have changed —
+    /// it exists to catch window resets and usage from another machine, nothing
+    /// more. Actual work triggers a poll far sooner, via `Activity`.
+    var interval: TimeInterval = 900 {
         didSet {
             guard interval != oldValue else { return }
             UserDefaults.standard.set(interval, forKey: "pollInterval")
@@ -25,6 +27,10 @@ final class QuotaModel {
     /// When the last completed poll finished. Drives "is the cached data still
     /// good enough" so the UI can open instantly instead of re-fetching.
     private var lastPollAt: Date?
+    /// How soon a poll follows detected activity. Long enough to let a burst of
+    /// tool calls settle, short enough that the number is current by the time
+    /// you look at the menu bar.
+    private let activeInterval: TimeInterval = 90
 
     init() {
         let saved = UserDefaults.standard.double(forKey: "pollInterval")
@@ -49,9 +55,15 @@ final class QuotaModel {
         await refresh()
     }
 
+    /// Two clocks. If Claude has been used since the last poll the figures have
+    /// actually moved, so the short interval applies; otherwise the idle
+    /// heartbeat does. This is what keeps the app responsive while you work
+    /// without spending requests all night on numbers that cannot change.
     private func secondsUntilNextPoll() -> TimeInterval {
         guard let lastPollAt else { return 0 }
-        return max(0, interval - Date().timeIntervalSince(lastPollAt))
+        let elapsed = Date().timeIntervalSince(lastPollAt)
+        let due = Activity.usedSince(lastPollAt) ? activeInterval : interval
+        return max(0, due - elapsed)
     }
 
     /// Sleeps first, then polls. Changing the interval therefore re-times the
@@ -64,8 +76,14 @@ final class QuotaModel {
         task = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
+                // Re-evaluated every 30s rather than slept through in one go:
+                // activity can arrive at any point, and the wait has to shorten
+                // when it does.
                 let wait = await self.secondsUntilNextPoll()
-                if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+                if wait > 0 {
+                    try? await Task.sleep(for: .seconds(min(wait, 30)))
+                    continue
+                }
                 if Task.isCancelled { return }
                 await self.refresh()
             }

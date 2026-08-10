@@ -40,7 +40,10 @@ public struct QuotaService: Sendable {
 
         store[entry.label] = AccountStore.Entry(
             label: entry.label, blob: live, tier: liveOAuth.rateLimitTier ?? entry.tier,
-            accountUUID: entry.accountUUID, email: entry.email)
+            accountUUID: entry.accountUUID, email: entry.email,
+            // Adopting a live credential clears any rejection: this token came
+            // from `claude` itself and is by definition current.
+            refreshBlockedUntil: nil)
         store.active = entry.label
         return true
     }
@@ -54,12 +57,19 @@ public struct QuotaService: Sendable {
         }
         guard oauth.isExpired() else { return (oauth.accessToken, nil) }
 
+        // Never ask the auth endpoint again while a rejection stands. Only a
+        // re-registration can fix it, and hammering it is what made a dead
+        // credential look like a two-day rate limit.
+        if let blocked = entry.refreshBlockedUntil, blocked > Date() {
+            throw CredentialRejected(label: entry.label)
+        }
+
         if let refreshExpiry = oauth.refreshTokenExpiresAt,
            Date(timeIntervalSince1970: refreshExpiry / 1000) < Date() {
             throw CCError("리프레시 토큰이 만료되었습니다. `ccquota add \(entry.label)`로 다시 등록하십시오.")
         }
 
-        let result = try await ClaudeAPI.refresh(refreshToken: oauth.refreshToken)
+        let result = try await ClaudeAPI.refresh(refreshToken: oauth.refreshToken, label: entry.label)
         oauth.accessToken = result.accessToken
         oauth.refreshToken = result.refreshToken
         oauth.expiresAt = result.expiresAtMillis
@@ -67,7 +77,8 @@ public struct QuotaService: Sendable {
         var blob = entry.blob
         try blob.setOAuth(oauth)
         let updated = AccountStore.Entry(label: entry.label, blob: blob, tier: entry.tier,
-                                         accountUUID: entry.accountUUID, email: entry.email)
+                                         accountUUID: entry.accountUUID, email: entry.email,
+                                         refreshBlockedUntil: nil)
 
         // Refreshing rotates the token pair. If this is the account `claude` is
         // logged in as, its Keychain copy is now the superseded one, so push the
@@ -133,7 +144,16 @@ public struct QuotaService: Sendable {
         } catch {
             snap.error = error.localizedDescription
             let limited = error as? RateLimited
-            return PollResult(snapshot: snap, updatedEntry: nil,
+
+            // Record the rejection so the next poll skips the request entirely.
+            var blocked: AccountStore.Entry?
+            if error is CredentialRejected, entry.refreshBlockedUntil == nil {
+                var marked = entry
+                marked.refreshBlockedUntil = Date().addingTimeInterval(3600)
+                blocked = marked
+            }
+
+            return PollResult(snapshot: snap, updatedEntry: blocked,
                               wasRateLimited: limited != nil,
                               retryAfterHint: limited?.retryAfterSeconds,
                               limitScope: limited?.scope)
@@ -162,7 +182,11 @@ public struct QuotaService: Sendable {
             return cached
         }
 
-        await syncActiveFromKeychain(&store)
+        // Persisting this is what keeps the active account off the refresh
+        // endpoint entirely: `claude` already keeps that token fresh, so adopting
+        // it means zero refreshes for whichever account is in use.
+        let synced = await syncActiveFromKeychain(&store)
+        if synced { try? store.save() }
         let active = store.active
 
         // Sequential, not concurrent: the spacing between requests matters more
@@ -174,10 +198,12 @@ public struct QuotaService: Sendable {
         for (index, entry) in store.accounts.enumerated() {
             if index > 0 { try? await Task.sleep(for: Self.requestSpacing) }
             let result = await snapshot(for: entry, isActive: entry.label == active)
+            // Only a genuine usage-endpoint rate limit stops the sweep. A
+            // rejected credential belongs to one account, and cutting the sweep
+            // short for it meant a single dead token hid every healthy account
+            // behind it — including the one that would have worked.
             if result.wasRateLimited {
                 rateLimited = true
-                // Stop the sweep at the first refusal. Continuing to ask the
-                // remaining accounts only deepens the limit we just hit.
                 if let hint = result.retryAfterHint {
                     serverHint = max(serverHint ?? 0, hint)
                 }
@@ -189,9 +215,6 @@ public struct QuotaService: Sendable {
                     skipped.plan = remaining.blob.oauth?.subscriptionType
                     skipped.tier = remaining.tier
                     skipped.email = remaining.email
-                    // Deliberately no per-account error: being rate limited is
-                    // one global condition, and repeating it on every row buried
-                    // the data under identical warnings.
                     skipped.isStale = true
                     results.append(PollResult(snapshot: skipped, updatedEntry: nil,
                                               wasRateLimited: false, retryAfterHint: nil,
@@ -224,6 +247,9 @@ public struct QuotaService: Sendable {
             // A rate limit is reported once, by `retryAfter` on the file. Only a
             // fault specific to this account — an expired login, a missing
             // credential — earns a message on its own row.
+            // A rate limit is reported once, by `retryAfter` on the file. A
+            // rejected credential is this account's own problem and needs to be
+            // said on its row, because only the user can fix it.
             carried.error = result.wasRateLimited ? nil : snapshot.error
             carried.isStale = true
             return carried
@@ -270,7 +296,8 @@ public struct QuotaService: Sendable {
                 """)
         }
         store[label] = AccountStore.Entry(label: label, blob: blob, tier: oauth.rateLimitTier,
-                                          accountUUID: profile.uuid, email: profile.email)
+                                          accountUUID: profile.uuid, email: profile.email,
+                                          refreshBlockedUntil: nil)
         store.active = label
         try store.save()
     }

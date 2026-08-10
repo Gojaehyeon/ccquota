@@ -131,12 +131,13 @@ struct SettingsWindow: View {
 
     private var preferences: some View {
         HStack {
-            Picker("갱신 주기", selection: $model.interval) {
-                Text("1분").tag(60.0)
-                Text("3분").tag(180.0)
-                Text("10분").tag(600.0)
+            Picker("유휴 시 갱신", selection: $model.interval) {
+                Text("5분").tag(300.0)
+                Text("15분").tag(900.0)
+                Text("30분").tag(1800.0)
             }
-            .frame(width: 180)
+            .frame(width: 200)
+            .help("Claude를 쓰는 중에는 이 값과 무관하게 90초 안에 갱신됩니다")
 
             Spacer()
 

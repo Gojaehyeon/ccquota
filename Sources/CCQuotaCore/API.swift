@@ -4,7 +4,9 @@ public enum ClaudeAPI {
     /// Claude Code's own OAuth client id — the refresh grant is rejected without it.
     static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
-    static let tokenURL = URL(string: "https://console.anthropic.com/v1/oauth/token")!
+    // The host the installed CLI actually refreshes against. The older
+    // console.anthropic.com address still answers, but this is the current one.
+    static let tokenURL = URL(string: "https://platform.claude.com/v1/oauth/token")!
     static let betaHeader = "oauth-2025-04-20"
 
     /// A 401 here is not transient — the stored token has been superseded, and
@@ -85,28 +87,6 @@ public enum ClaudeAPI {
         return Profile(uuid: uuid, email: account["email"] as? String)
     }
 
-    /// Asks the token endpoint a question it will refuse anyway, using a token
-    /// that is deliberately invalid. A 429 means the caller is still blocked; any
-    /// other status means the block has lifted and requests reach validation
-    /// again. Nothing real is sent, so no stored credential can be rotated or
-    /// spent by checking.
-    public static func probeAuthEndpoint() async throws -> (blocked: Bool, status: Int) {
-        var req = URLRequest(url: tokenURL)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        req.httpBody = try JSONSerialization.data(withJSONObject: [
-            "grant_type": "refresh_token",
-            "refresh_token": "ccquota-probe-not-a-real-token",
-            "client_id": clientID,
-        ])
-        req.timeoutInterval = 20
-
-        let (_, response) = try await URLSession.shared.data(for: req)
-        let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-        return (blocked: code == 429, status: code)
-    }
-
     // MARK: - Token refresh
 
     public struct RefreshResult: Sendable {
@@ -115,11 +95,13 @@ public enum ClaudeAPI {
         public let expiresAtMillis: Double
     }
 
-    public static func refresh(refreshToken: String) async throws -> RefreshResult {
+    /// `label` only shapes the error message, so a rejection can name the account
+    /// the user has to re-register.
+    public static func refresh(refreshToken: String, label: String) async throws -> RefreshResult {
         var req = URLRequest(url: tokenURL)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue("anthropic", forHTTPHeaderField: "User-Agent")
+        req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         req.httpBody = try JSONSerialization.data(withJSONObject: [
             "grant_type": "refresh_token",
             "refresh_token": refreshToken,
@@ -130,13 +112,13 @@ public enum ClaudeAPI {
         let (data, response) = try await URLSession.shared.data(for: req)
         let http = response as? HTTPURLResponse
 
-        // The token endpoint rate-limits separately from the usage endpoint, and
-        // this path used to raise a plain error — so the backoff never engaged
-        // and every poll retried the refresh, holding the limit open. Two
-        // accounts sat rate-limited for twelve hours that way.
-        if http?.statusCode == 429 {
-            throw RateLimited(scope: .auth, retryAfterSeconds:
-                http?.value(forHTTPHeaderField: "retry-after").flatMap(Double.init))
+        // A dead refresh token comes back as 429 `rate_limit_error`, the same
+        // shape a genuine rate limit uses — verified by sending a token that
+        // could not possibly be valid and getting exactly this. It is a
+        // credential problem, not a traffic one, so it must not drive a backoff:
+        // no amount of waiting revives a superseded token.
+        if let code = http?.statusCode, code == 429 || code == 400 || code == 401 {
+            throw CredentialRejected(label: label)
         }
         guard http?.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? ""

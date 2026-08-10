@@ -219,6 +219,18 @@ public struct CCError: LocalizedError, Sendable {
     public var errorDescription: String? { message }
 }
 
+/// The stored refresh token no longer works. Waiting does not help: a login
+/// elsewhere supersedes earlier tokens for that account, and the endpoint
+/// reports the dead token as `rate_limit_error` rather than as an auth failure —
+/// which is what made this look like a rate limit for two days.
+public struct CredentialRejected: LocalizedError, Sendable {
+    public let label: String
+    public init(label: String) { self.label = label }
+    public var errorDescription: String? {
+        "저장된 토큰이 만료되었습니다 — 이 계정으로 로그인한 뒤 `ccquota add \(label)`로 재등록하십시오."
+    }
+}
+
 /// Distinguished from a generic failure because it drives the backoff: polling
 /// through a 429 is what keeps a rate limit alive.
 public struct RateLimited: LocalizedError, Sendable {

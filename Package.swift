@@ -13,6 +13,5 @@ let package = Package(
         .target(name: "CCQuotaCore"),
         .executableTarget(name: "ccquota", dependencies: ["CCQuotaCore"]),
         .executableTarget(name: "WidgetPreview", dependencies: ["CCQuotaCore"], path: "Tools/WidgetPreview"),
-        .executableTarget(name: "DecodeTest", dependencies: ["CCQuotaCore"], path: "Tools/DecodeTest"),
     ]
 )
