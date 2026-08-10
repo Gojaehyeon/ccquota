@@ -22,10 +22,11 @@ public enum OAuthFlow {
     static let consoleAuthorizeURL = "https://platform.claude.com/oauth/authorize"
     public static let redirectURI = "https://platform.claude.com/oauth/code/callback"
 
-    /// The same scopes `claude` requests. Anything narrower would monitor fine
-    /// but produce a credential that cannot be switched to, and switching is
-    /// half the point of the tool.
-    static let scopes = "user:profile user:inference user:sessions:claude_code user:mcp_servers"
+    /// Exactly the set `claude` records after its own login. Matching it matters
+    /// for switching: a credential granted anything narrower is one `claude`
+    /// treats as not signed in.
+    static let scopes = "user:profile user:inference user:sessions:claude_code "
+        + "user:mcp_servers user:file_upload"
 
     public struct Pending: Sendable {
         public let url: URL
@@ -95,13 +96,25 @@ public enum OAuthFlow {
         }
 
         let expiresIn = (obj["expires_in"] as? Double) ?? 3600
+        let refreshLifetime = (obj["refresh_expires_in"] as? Double)
+            ?? (60 * 60 * 24 * 27)   // what `claude` records: roughly four weeks
+
+        // Prefer what was actually granted over what was asked for.
+        let granted: [String] = {
+            if let list = obj["scope"] as? String { return list.split(separator: " ").map(String.init) }
+            if let list = obj["scopes"] as? [String] { return list }
+            return scopes.split(separator: " ").map(String.init)
+        }().sorted()
+
         return ClaudeAiOAuth(
             accessToken: access,
             refreshToken: refresh,
             expiresAt: Date().addingTimeInterval(expiresIn).timeIntervalSince1970 * 1000,
-            refreshTokenExpiresAt: nil,
-            subscriptionType: nil,
-            rateLimitTier: nil
+            refreshTokenExpiresAt: Date().addingTimeInterval(refreshLifetime)
+                .timeIntervalSince1970 * 1000,
+            subscriptionType: nil,     // filled in from the profile at registration
+            rateLimitTier: nil,
+            scopes: granted
         )
     }
 

@@ -106,13 +106,39 @@ public struct QuotaService: Sendable {
         do {
             var (token, updated) = try await freshToken(for: entry, isActive: isActive)
 
-            // Backfill identity for accounts registered before it was recorded,
-            // so duplicate detection covers them too.
-            if (updated ?? entry).accountUUID == nil {
+            // Backfill anything an older registration is missing: the account
+            // identity that duplicate detection needs, and the plan and tier
+            // that `claude` reads back out of a switched-in credential. Without
+            // the latter a switch reads as a logout, so repairing here saves the
+            // user re-authorising every account by hand.
+            let current = updated ?? entry
+            let needsIdentity = current.accountUUID == nil
+            let needsPlan = current.blob.oauth?.subscriptionType == nil
+                || current.blob.oauth?.refreshTokenExpiresAt == nil
+            if needsIdentity || needsPlan {
                 let profile = try await ClaudeAPI.fetchProfile(accessToken: token)
-                var base = updated ?? entry
+                var base = current
                 base.accountUUID = profile.uuid
                 base.email = profile.email
+                base.tier = profile.rateLimitTier ?? base.tier
+                if needsPlan, var oauth = base.blob.oauth {
+                    oauth.subscriptionType = profile.subscriptionType
+                    oauth.rateLimitTier = profile.rateLimitTier
+                    if oauth.scopes == nil {
+                        oauth.scopes = OAuthFlow.scopes.split(separator: " ").map(String.init).sorted()
+                    }
+                    if oauth.refreshTokenExpiresAt == nil {
+                        // The issue time is not recoverable for an older entry, so
+                        // this takes `claude`'s own lifetime from now. Overshooting
+                        // only risks one refusal that already reports itself
+                        // clearly; undershooting would block a working token.
+                        oauth.refreshTokenExpiresAt = Date()
+                            .addingTimeInterval(60 * 60 * 24 * 27).timeIntervalSince1970 * 1000
+                    }
+                    var blob = base.blob
+                    try blob.setOAuth(oauth)
+                    base.blob = blob
+                }
                 updated = base
             }
             snap.email = (updated ?? entry).email
@@ -297,9 +323,17 @@ public struct QuotaService: Sendable {
             ?? AccountNaming.suggestedLabel(email: profile.email, uuid: profile.uuid,
                                             taken: store.accounts.map(\.label))
 
+        // `claude` reads the plan and tier back out of the stored credential, so
+        // a blob without them is one it treats as not signed in — the switch
+        // appeared to log the user out rather than change accounts.
+        var complete = oauth
+        complete.subscriptionType = profile.subscriptionType
+        complete.rateLimitTier = profile.rateLimitTier
+
         var blob = try Keychain.emptyBlob()
-        try blob.setOAuth(oauth)
-        store[label] = AccountStore.Entry(label: label, blob: blob, tier: oauth.rateLimitTier,
+        try blob.setOAuth(complete)
+        store[label] = AccountStore.Entry(label: label, blob: blob,
+                                          tier: profile.rateLimitTier,
                                           accountUUID: profile.uuid, email: profile.email,
                                           refreshBlockedUntil: nil)
         try store.save()
@@ -344,7 +378,13 @@ public struct QuotaService: Sendable {
             throw CCError("'\(label)' 계정이 없습니다. 등록된 계정: \(known.isEmpty ? "(없음)" : known)")
         }
         await syncActiveFromKeychain(&store)
-        try Keychain.writeLiveCredential(target.blob)
+
+        // Graft the target credential onto the live blob instead of replacing it.
+        // A wholesale write dropped the `mcpOAuth` section, losing every MCP
+        // server `claude` had authorised.
+        let merged = (try? Keychain.readLiveCredential().replacingOAuth(from: target.blob))
+            ?? target.blob
+        try Keychain.writeLiveCredential(merged)
         store.active = label
         try store.save()
     }

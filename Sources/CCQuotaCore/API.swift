@@ -65,6 +65,10 @@ public enum ClaudeAPI {
     public struct Profile: Sendable {
         public let uuid: String
         public let email: String?
+        /// `claude` stores these alongside the tokens and reads them back when
+        /// deciding whether a stored login is a usable subscription.
+        public let subscriptionType: String?
+        public let rateLimitTier: String?
     }
 
     /// The only reliable way to tell two registered accounts apart: tokens
@@ -87,7 +91,18 @@ public enum ClaudeAPI {
               let uuid = account["uuid"] as? String else {
             throw CCError("계정 정보를 확인하지 못했습니다 (HTTP \(code)).")
         }
-        return Profile(uuid: uuid, email: account["email"] as? String)
+        let organization = obj["organization"] as? [String: Any]
+        let subscription: String? = {
+            if account["has_claude_max"] as? Bool == true { return "max" }
+            if account["has_claude_pro"] as? Bool == true { return "pro" }
+            // e.g. "claude_max" -> "max"
+            return (organization?["organization_type"] as? String)?
+                .replacingOccurrences(of: "claude_", with: "")
+        }()
+        return Profile(uuid: uuid,
+                       email: account["email"] as? String,
+                       subscriptionType: subscription,
+                       rateLimitTier: organization?["rate_limit_tier"] as? String)
     }
 
     // MARK: - Token refresh

@@ -14,6 +14,9 @@ public struct ClaudeAiOAuth: Codable, Sendable {
     public var refreshTokenExpiresAt: Double?
     public var subscriptionType: String?
     public var rateLimitTier: String?
+    /// Granted scopes, as `claude` records them. Part of what it reads back to
+    /// decide a stored login is usable.
+    public var scopes: [String]?
 
     public var expiryDate: Date { Date(timeIntervalSince1970: expiresAt / 1000) }
 
@@ -58,6 +61,17 @@ public struct CredentialBlob: Sendable, Codable {
     }
 
     public func serialized() -> Data { json }
+
+    /// Returns `other`'s credential grafted onto this blob, keeping everything
+    /// else. Switching used to write the account blob wholesale, which dropped
+    /// the `mcpOAuth` section — every MCP server connection `claude` had
+    /// authorised was silently lost each time an account was switched.
+    public func replacingOAuth(from other: CredentialBlob) throws -> CredentialBlob {
+        guard let oauth = other.oauth else { return self }
+        var copy = self
+        try copy.setOAuth(oauth)
+        return copy
+    }
 }
 
 // MARK: - Usage API response
