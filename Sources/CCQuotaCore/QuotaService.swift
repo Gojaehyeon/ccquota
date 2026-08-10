@@ -172,7 +172,11 @@ public struct QuotaService: Sendable {
     public func poll(force: Bool = false) async throws -> SharedStateFile {
         var store = try AccountStore.load()
         guard !store.accounts.isEmpty else {
-            throw CCError("등록된 계정이 없습니다. `ccquota add <이름>`으로 먼저 등록하십시오.")
+            // Clear the published figures before bailing out. Throwing without
+            // doing so left the widget rendering percentages for accounts that
+            // no longer exist, with nothing that would ever overwrite them.
+            try? SharedState.write(SharedStateFile(updatedAt: Date(), accounts: []))
+            throw CCError("등록된 계정이 없습니다. 설정에서 브라우저 승인으로 등록하십시오.")
         }
 
         let previous = SharedState.read()

@@ -13,6 +13,7 @@ ccquota — Claude Max 다중 계정 한도 모니터
   ccquota list                등록된 계정 목록
   ccquota switch <이름>       로그인 계정 전환
   ccquota remove <이름>       등록 해제
+  ccquota reset               전체 등록 삭제 + 표시 캐시 비우기
 
 전형적인 사용 흐름:
   ccquota login  →  ccquota login  →  ccquota login   (계정마다 한 번)
@@ -162,7 +163,7 @@ do {
         var store = try AccountStore.load()
         if await service.syncActiveFromKeychain(&store) { try? store.save() }
         if store.accounts.isEmpty {
-            print("등록된 계정이 없습니다. `ccquota add <이름>`을 먼저 실행하십시오.")
+            print("등록된 계정이 없습니다. `ccquota login`으로 브라우저 승인을 받으십시오.")
         }
         for entry in store.accounts {
             let marker = entry.label == store.active ? color("●", "36") : " "
@@ -178,6 +179,18 @@ do {
             print(color("      중복 등록은 서로의 토큰을 무효화해 양쪽 다 401이 납니다. "
                         + "`ccquota remove \(group.dropFirst().joined(separator: " ")).`으로 정리하십시오.", "90"))
         }
+
+    case "reset":
+        // Registrations and cached figures only. The Keychain login `claude`
+        // uses is not ours to remove.
+        var store = try AccountStore.load()
+        let count = store.accounts.count
+        store.accounts.removeAll()
+        store.active = nil
+        try store.save()
+        SharedState.clear()
+        print(color("✓", "32") + " 등록 \(count)건을 삭제하고 캐시를 비웠습니다. "
+              + "(claude 로그인은 그대로입니다)")
 
     case "remove":
         let label = requireLabel("remove")

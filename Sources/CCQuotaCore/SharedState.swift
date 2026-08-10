@@ -54,6 +54,13 @@ public enum SharedState {
     /// invisible — it just renders an empty card. Naming which URL was tried and
     /// how it failed is the only way to tell "no accounts registered" apart from
     /// "cannot reach the App Group container".
+    /// Removes the published figures entirely, for a reset.
+    public static func clear() {
+        for url in [containerURL, fallbackURL].compactMap({ $0 }) {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
     public static func read() -> SharedStateFile? {
         let container = containerURL
         log.notice("read: container=\(container?.path ?? "nil", privacy: .public) fallback=\(fallbackURL.path, privacy: .public)")
