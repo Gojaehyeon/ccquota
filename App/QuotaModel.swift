@@ -134,13 +134,13 @@ final class QuotaModel {
 
     func cancelBrowserLogin() { pendingLogin = nil }
 
-    func completeBrowserLogin(label: String, pastedCode: String) async {
-        let trimmedLabel = label.trimmingCharacters(in: .whitespaces)
-        guard let pending = pendingLogin, !trimmedLabel.isEmpty else { return }
+    func completeBrowserLogin(pastedCode: String) async {
+        guard let pending = pendingLogin else { return }
         do {
             let parsed = OAuthFlow.parsePasted(pastedCode)
             let oauth = try await OAuthFlow.exchange(code: parsed.code, pending: pending)
-            try await service.addAccount(label: trimmedLabel, oauth: oauth)
+            // No name asked for: it comes from the account being authorised.
+            try await service.addAccount(label: nil, oauth: oauth)
             pendingLogin = nil
             lastError = nil
             await refresh(force: true)

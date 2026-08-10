@@ -213,6 +213,10 @@ public struct SharedStateFile: Codable, Sendable {
 
 // MARK: - Support
 
+extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
 public struct CCError: LocalizedError, Sendable {
     public let message: String
     public init(_ message: String) { self.message = message }

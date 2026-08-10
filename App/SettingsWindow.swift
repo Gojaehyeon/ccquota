@@ -29,22 +29,17 @@ struct SettingsWindow: View {
             Text("계정 등록").font(.headline)
 
             Text("""
-            이름을 정하고 브라우저에서 승인하면 등록됩니다. 계정마다 한 번씩만 하면 됩니다.
+            브라우저에서 승인하면 등록됩니다. 이름은 계정에서 가져오므로 정하실 필요가 없습니다.
+            계정마다 한 번씩만 하면 됩니다.
             여기서 받은 토큰은 CCQuota 전용이라, 이후 claude에서 로그인하거나 로그아웃해도 영향받지 않습니다.
             """)
             .font(.callout)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
-            HStack {
-                TextField("계정 이름 (예: main, work, alt)", text: $newLabel)
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(model.pendingLogin != nil)
-                Button("브라우저에서 승인") { model.beginBrowserLogin() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(newLabel.trimmingCharacters(in: .whitespaces).isEmpty
-                              || model.pendingLogin != nil)
-            }
+            Button("브라우저에서 승인") { model.beginBrowserLogin() }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.pendingLogin != nil)
 
             if model.pendingLogin != nil {
                 HStack {
@@ -66,9 +61,14 @@ struct SettingsWindow: View {
                          + "claude와 토큰 한 벌을 공유하므로 어느 한쪽이 갱신하면 다른 쪽이 무효화됩니다.")
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Button("현재 claude 로그인 계정 등록", action: register)
-                        .controlSize(.small)
-                        .disabled(newLabel.trimmingCharacters(in: .whitespaces).isEmpty || registering)
+                    HStack {
+                        TextField("이름", text: $newLabel)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 140)
+                        Button("현재 claude 로그인 계정 등록", action: register)
+                            .controlSize(.small)
+                            .disabled(newLabel.trimmingCharacters(in: .whitespaces).isEmpty || registering)
+                    }
                 }
                 .padding(.top, 4)
             }
@@ -86,9 +86,9 @@ struct SettingsWindow: View {
     private func completeLogin() {
         registering = true
         Task {
-            await model.completeBrowserLogin(label: newLabel, pastedCode: pastedCode)
+            await model.completeBrowserLogin(pastedCode: pastedCode)
             registering = false
-            if model.lastError == nil { newLabel = ""; pastedCode = "" }
+            if model.lastError == nil { pastedCode = "" }
         }
     }
 

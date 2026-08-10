@@ -8,14 +8,14 @@ ccquota — Claude Max 다중 계정 한도 모니터
   ccquota status              위와 동일
   ccquota json                기계 판독용 JSON 출력
   ccquota watch [초]          주기적 갱신 (기본 180초, 최소 60초)
-  ccquota login <이름>        브라우저로 승인해 <이름>으로 등록 (권장)
+  ccquota login [이름]        브라우저로 승인해 등록 (권장). 이름은 생략하면 계정에서 가져옵니다
   ccquota add <이름>          현재 claude 로그인 계정을 <이름>으로 등록
   ccquota list                등록된 계정 목록
   ccquota switch <이름>       로그인 계정 전환
   ccquota remove <이름>       등록 해제
 
 전형적인 사용 흐름:
-  ccquota login main → ccquota login work → ccquota login alt
+  ccquota login  →  ccquota login  →  ccquota login   (계정마다 한 번)
 
 `login`은 계정마다 브라우저 승인을 한 번 받습니다. 받은 토큰은 CCQuota 전용이라
 claude 로그인/로그아웃과 무관하게 유지됩니다. `add`는 claude의 자격증명을 복사하므로
@@ -143,7 +143,8 @@ do {
         print(usageText)
 
     case "login":
-        let label = requireLabel("login")
+        // Name is optional — omitted, it comes from the account itself.
+        let label = args.count >= 2 ? args[1] : nil
         let pending = try OAuthFlow.begin()
         print("브라우저에서 아래 주소를 열어 승인하십시오.\n")
         print(pending.url.absoluteString)
@@ -155,8 +156,8 @@ do {
         }
         let parsed = OAuthFlow.parsePasted(line)
         let oauth = try await OAuthFlow.exchange(code: parsed.code, pending: pending)
-        try await service.addAccount(label: label, oauth: oauth)
-        print(color("✓", "32") + " '\(label)' 계정을 등록했습니다. (CCQuota 전용 토큰)")
+        let registered = try await service.addAccount(label: label, oauth: oauth)
+        print(color("✓", "32") + " '\(registered)' 계정을 등록했습니다. (CCQuota 전용 토큰)")
 
     case "add":
         let label = requireLabel("add")

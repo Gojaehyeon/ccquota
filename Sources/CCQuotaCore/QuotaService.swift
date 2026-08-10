@@ -278,15 +278,20 @@ public struct QuotaService: Sendable {
     /// Keychain. The resulting grant is CCQuota's own, so `claude` logging in or
     /// out later cannot invalidate it — which is the failure the Keychain route
     /// cannot avoid, since both sides then share and rotate one token pair.
-    public func addAccount(label: String, oauth: ClaudeAiOAuth) async throws {
+    /// `label` is optional: with nothing given the name comes from the account
+    /// itself, which is one less thing to invent and one less way to end up with
+    /// two labels that mean the same account.
+    @discardableResult
+    public func addAccount(label: String?, oauth: ClaudeAiOAuth) async throws -> String {
         let profile = try await ClaudeAPI.fetchProfile(accessToken: oauth.accessToken)
 
         var store = try AccountStore.load()
-        if let clash = store.accounts.first(where: {
-            $0.accountUUID == profile.uuid && $0.label != label
-        }) {
+        if let clash = store.accounts.first(where: { $0.accountUUID == profile.uuid }) {
             throw CCError("이 계정(\(profile.email ?? profile.uuid))은 이미 '\(clash.label)'로 등록되어 있습니다.")
         }
+        let label = label?.trimmingCharacters(in: .whitespaces).nilIfEmpty
+            ?? AccountNaming.suggestedLabel(email: profile.email, uuid: profile.uuid,
+                                            taken: store.accounts.map(\.label))
 
         var blob = try Keychain.emptyBlob()
         try blob.setOAuth(oauth)
@@ -294,6 +299,7 @@ public struct QuotaService: Sendable {
                                           accountUUID: profile.uuid, email: profile.email,
                                           refreshBlockedUntil: nil)
         try store.save()
+        return label
     }
 
     /// Captures whatever account is logged in right now under `label`.

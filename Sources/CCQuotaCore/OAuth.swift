@@ -110,3 +110,67 @@ extension Data {
             .replacingOccurrences(of: "=", with: "")
     }
 }
+
+// MARK: - Naming
+
+public enum AccountNaming {
+    /// Mail providers whose domain says nothing about the account. For these the
+    /// local part is the distinguishing bit; for a domain the user owns, it is
+    /// the domain. Applied to the accounts already registered here, this rule
+    /// reproduces exactly the names that were chosen by hand:
+    /// tntlabgo@gmail.com → tntlabgo, admin@limboart.com → limboart.
+    static let genericProviders: Set<String> = [
+        "gmail.com", "googlemail.com", "icloud.com", "me.com", "mac.com",
+        "outlook.com", "hotmail.com", "live.com", "yahoo.com", "proton.me",
+        "protonmail.com", "naver.com", "daum.net", "hanmail.net", "kakao.com",
+        "nate.com",
+    ]
+
+    /// Second-level suffixes that carry no identity, so `example.co.kr` names
+    /// itself `example` rather than `co`.
+    static let publicSecondLevels: Set<String> = ["co", "com", "ne", "or", "ac", "go"]
+
+    public static func suggestedLabel(email: String?, uuid: String,
+                                      taken: [String] = []) -> String {
+        let base = derive(email: email, uuid: uuid)
+        guard taken.contains(base) else { return base }
+        // Collisions are rare but must not overwrite an existing account.
+        for suffix in 2...99 where !taken.contains("\(base)-\(suffix)") {
+            return "\(base)-\(suffix)"
+        }
+        return "\(base)-\(uuid.prefix(6))"
+    }
+
+    private static func derive(email: String?, uuid: String) -> String {
+        guard let email, let at = email.firstIndex(of: "@") else {
+            return "account-" + uuid.prefix(6)
+        }
+        let local = String(email[email.startIndex ..< at])
+        let domain = String(email[email.index(after: at)...]).lowercased()
+
+        let candidate: String
+        if genericProviders.contains(domain) {
+            candidate = local
+        } else {
+            var parts = domain.split(separator: ".").map(String.init)
+            parts = Array(parts.dropLast())                       // drop the TLD
+            if parts.count > 1, publicSecondLevels.contains(parts.last ?? "") {
+                parts = Array(parts.dropLast())
+            }
+            candidate = parts.last ?? local
+        }
+
+        let cleaned = sanitize(candidate)
+        return cleaned.isEmpty ? "account-" + uuid.prefix(6) : cleaned
+    }
+
+    private static func sanitize(_ raw: String) -> String {
+        let allowed = Set("abcdefghijklmnopqrstuvwxyz0123456789-_")
+        let lowered = raw.lowercased().map { allowed.contains($0) ? $0 : "-" }
+        return String(lowered)
+            .split(separator: "-", omittingEmptySubsequences: true)
+            .joined(separator: "-")
+            .prefix(24)
+            .description
+    }
+}

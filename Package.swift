@@ -13,5 +13,6 @@ let package = Package(
         .target(name: "CCQuotaCore"),
         .executableTarget(name: "ccquota", dependencies: ["CCQuotaCore"]),
         .executableTarget(name: "WidgetPreview", dependencies: ["CCQuotaCore"], path: "Tools/WidgetPreview"),
+        .executableTarget(name: "NameCheck", dependencies: ["CCQuotaCore"], path: "Tools/NameCheck"),
     ]
 )
