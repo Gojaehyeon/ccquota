@@ -12,7 +12,7 @@ import Foundation
 /// out as much as it likes without touching it.
 public enum OAuthFlow {
     static let authorizeURL = "https://platform.claude.com/oauth/authorize"
-    static let redirectURI = "https://platform.claude.com/oauth/code/callback"
+    public static let redirectURI = "https://platform.claude.com/oauth/code/callback"
 
     /// The same scopes `claude` requests. Anything narrower would monitor fine
     /// but produce a credential that cannot be switched to, and switching is
@@ -23,12 +23,15 @@ public enum OAuthFlow {
         public let url: URL
         public let verifier: String
         public let state: String
+        public let redirectURI: String
     }
 
     /// Builds the authorisation URL and the verifier that must survive until the
     /// code comes back. PKCE means the code alone is useless to anyone who
     /// intercepts it — only the holder of the verifier can redeem it.
-    public static func begin() throws -> Pending {
+    /// `redirectURI` defaults to the hosted page that shows a code to copy. Pass
+    /// a loopback address to have the browser deliver the code straight back.
+    public static func begin(redirectURI: String = OAuthFlow.redirectURI) throws -> Pending {
         let verifier = randomURLSafe(bytes: 32)
         let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64URLEncoded()
 
@@ -46,7 +49,7 @@ public enum OAuthFlow {
         guard let url = components.url else {
             throw CCError("인증 URL을 만들지 못했습니다.")
         }
-        return Pending(url: url, verifier: verifier, state: verifier)
+        return Pending(url: url, verifier: verifier, state: verifier, redirectURI: redirectURI)
     }
 
     /// The callback page presents the code as `code#state`. Accept either form,
@@ -65,7 +68,7 @@ public enum OAuthFlow {
         req.httpBody = try JSONSerialization.data(withJSONObject: [
             "grant_type": "authorization_code",
             "code": code,
-            "redirect_uri": redirectURI,
+            "redirect_uri": pending.redirectURI,
             "client_id": ClaudeAPI.clientID,
             "code_verifier": pending.verifier,
             "state": pending.state,
@@ -92,6 +95,27 @@ public enum OAuthFlow {
             subscriptionType: nil,
             rateLimitTier: nil
         )
+    }
+
+    /// The whole flow: open the browser, wait for the redirect, redeem the code.
+    /// Falls back to the paste page when no loopback port can be opened, which is
+    /// the only case where the user has to copy anything.
+    public static func authorizeInBrowser() async throws -> ClaudeAiOAuth {
+        guard let listener = try? CallbackListener() else {
+            throw CCError("로컬 콜백 서버를 열지 못했습니다. 설정에서 코드 붙여넣기 방식을 사용하십시오.")
+        }
+        defer { listener.stop() }
+
+        let pending = try begin(redirectURI: listener.redirectURI)
+        try Shell.open(pending.url)
+
+        let callback = try await listener.waitForCode()
+        // PKCE already binds the code to this attempt; the state check catches a
+        // redirect that belongs to some other authorisation entirely.
+        if let returned = callback.state, returned != pending.state {
+            throw CCError("승인 응답이 이 요청과 일치하지 않습니다. 다시 시도하십시오.")
+        }
+        return try await exchange(code: callback.code, pending: pending)
     }
 
     private static func randomURLSafe(bytes: Int) -> String {

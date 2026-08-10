@@ -8,7 +8,6 @@ import SwiftUI
 struct SettingsWindow: View {
     @Bindable var model: QuotaModel
     @State private var newLabel = ""
-    @State private var pastedCode = ""
     @State private var registering = false
 
     var body: some View {
@@ -29,29 +28,22 @@ struct SettingsWindow: View {
             Text("계정 등록").font(.headline)
 
             Text("""
-            브라우저에서 승인하면 등록됩니다. 이름은 계정에서 가져오므로 정하실 필요가 없습니다.
-            계정마다 한 번씩만 하면 됩니다.
+            버튼을 누르면 브라우저가 열립니다. 승인만 하면 나머지는 자동입니다 — 붙여넣을 코드도,
+            정할 이름도 없습니다. 계정마다 한 번씩만 하면 됩니다.
             여기서 받은 토큰은 CCQuota 전용이라, 이후 claude에서 로그인하거나 로그아웃해도 영향받지 않습니다.
             """)
             .font(.callout)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
-            Button("브라우저에서 승인") { model.beginBrowserLogin() }
-                .buttonStyle(.borderedProminent)
-                .disabled(model.pendingLogin != nil)
-
-            if model.pendingLogin != nil {
-                HStack {
-                    TextField("승인 후 표시되는 코드를 붙여넣으십시오", text: $pastedCode)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit(completeLogin)
-                    Button(registering ? "확인 중…" : "완료", action: completeLogin)
-                        .disabled(pastedCode.trimmingCharacters(in: .whitespaces).isEmpty || registering)
-                    Button("취소") {
-                        model.cancelBrowserLogin()
-                        pastedCode = ""
-                    }
+            HStack(spacing: 8) {
+                Button("브라우저에서 승인") { Task { await model.loginWithBrowser() } }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.awaitingApproval)
+                if model.awaitingApproval {
+                    ProgressView().controlSize(.small)
+                    Text("브라우저에서 승인을 기다리는 중…")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
 
@@ -81,15 +73,6 @@ struct SettingsWindow: View {
             }
         }
         .padding(16)
-    }
-
-    private func completeLogin() {
-        registering = true
-        Task {
-            await model.completeBrowserLogin(pastedCode: pastedCode)
-            registering = false
-            if model.lastError == nil { pastedCode = "" }
-        }
     }
 
     private func register() {

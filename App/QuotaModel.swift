@@ -119,30 +119,20 @@ final class QuotaModel {
 
     /// Browser authorisation, kept as two steps so the view can show the code
     /// field only once the browser has actually been sent somewhere.
-    private(set) var pendingLogin: OAuthFlow.Pending?
+    /// True while the browser is open and the redirect has not arrived.
+    private(set) var awaitingApproval = false
 
-    func beginBrowserLogin() {
+    /// One step: open the browser, catch the redirect on loopback, redeem the
+    /// code, register. Nothing to copy and nothing to type.
+    func loginWithBrowser() async {
+        guard !awaitingApproval else { return }
+        awaitingApproval = true
+        lastError = nil
+        defer { awaitingApproval = false }
         do {
-            let pending = try OAuthFlow.begin()
-            pendingLogin = pending
-            lastError = nil
-            try Shell.open(pending.url)
-        } catch {
-            lastError = error.localizedDescription
-        }
-    }
-
-    func cancelBrowserLogin() { pendingLogin = nil }
-
-    func completeBrowserLogin(pastedCode: String) async {
-        guard let pending = pendingLogin else { return }
-        do {
-            let parsed = OAuthFlow.parsePasted(pastedCode)
-            let oauth = try await OAuthFlow.exchange(code: parsed.code, pending: pending)
+            let oauth = try await OAuthFlow.authorizeInBrowser()
             // No name asked for: it comes from the account being authorised.
             try await service.addAccount(label: nil, oauth: oauth)
-            pendingLogin = nil
-            lastError = nil
             await refresh(force: true)
         } catch {
             lastError = error.localizedDescription

@@ -145,17 +145,8 @@ do {
     case "login":
         // Name is optional — omitted, it comes from the account itself.
         let label = args.count >= 2 ? args[1] : nil
-        let pending = try OAuthFlow.begin()
-        print("브라우저에서 아래 주소를 열어 승인하십시오.\n")
-        print(pending.url.absoluteString)
-        print("")
-        _ = try? Shell.open(pending.url)
-        print("승인 후 화면에 표시되는 코드를 붙여넣으십시오:")
-        guard let line = readLine(strippingNewline: true), !line.isEmpty else {
-            fail("코드가 입력되지 않았습니다.")
-        }
-        let parsed = OAuthFlow.parsePasted(line)
-        let oauth = try await OAuthFlow.exchange(code: parsed.code, pending: pending)
+        print("브라우저에서 승인하십시오. 승인이 끝나면 자동으로 이어집니다…")
+        let oauth = try await OAuthFlow.authorizeInBrowser()
         let registered = try await service.addAccount(label: label, oauth: oauth)
         print(color("✓", "32") + " '\(registered)' 계정을 등록했습니다. (CCQuota 전용 토큰)")
 
