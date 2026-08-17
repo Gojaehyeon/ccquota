@@ -31,19 +31,21 @@ public enum Keychain {
         return try CredentialBlob(json: data)
     }
 
-    /// Overwrites the live credential. `-A` grants access to all applications so
-    /// that `claude` itself keeps working after a swap without re-prompting;
-    /// set CCQUOTA_STRICT_ACL=1 to keep the default restrictive ACL instead.
+    /// Overwrites the live credential, leaving the item's ACL untouched.
+    ///
+    /// Deliberately no `-A`. That flag rewrites the access list, and changing an
+    /// existing item's ACL needs the login keychain password — so every switch
+    /// stopped on a "security wants to change access permissions" dialog. It was
+    /// never needed: `claude` reads this item through /usr/bin/security, which
+    /// the existing ACL already trusts, and which is the same tool writing here.
     public static func writeLiveCredential(_ blob: CredentialBlob) throws {
         let json = try blob.serialized()
         guard let text = String(data: json, encoding: .utf8) else {
             throw CCError("자격증명을 직렬화하지 못했습니다.")
         }
-        var args = ["add-generic-password", "-U", "-s", service, "-a", account, "-w", text]
-        if ProcessInfo.processInfo.environment["CCQUOTA_STRICT_ACL"] != "1" {
-            args.insert("-A", at: 1)
-        }
-        _ = try Shell.run("/usr/bin/security", args)
+        _ = try Shell.run("/usr/bin/security",
+                          ["add-generic-password", "-U",
+                           "-s", service, "-a", account, "-w", text])
     }
 }
 

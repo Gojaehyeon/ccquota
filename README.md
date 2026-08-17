@@ -123,8 +123,9 @@ sudo killall chronod
 - `~/.ccquota/accounts.json`은 리프레시 토큰을 담으므로 0600으로 생성됩니다. Claude Code가 Linux·Windows에서
   `~/.claude/.credentials.json`을 다루는 방식과 같습니다. 백업·동기화 폴더에 두지 마십시오.
 - 위젯은 샌드박스에서 실행되며 App Group의 퍼센트 파일만 읽습니다. 토큰에 접근할 경로가 없습니다.
-- `ccquota switch`는 Keychain 항목을 `-A`(모든 앱 접근 허용)로 다시 씁니다. 그렇게 하지 않으면 전환 후
-  `claude`가 실행될 때마다 Keychain 승인 창이 뜹니다. 이 완화가 불편하면 `CCQUOTA_STRICT_ACL=1`을 설정하십시오.
+- `ccquota switch`는 Keychain 항목의 **비밀번호만 바꾸고 ACL은 건드리지 않습니다.** `security -A`로 접근
+  목록을 다시 쓰면 macOS가 로그인 키체인 비밀번호를 요구해 전환할 때마다 창이 뜹니다. 애초에 필요하지도
+  않습니다 — `claude`는 이 항목을 `/usr/bin/security`로 읽고, 기존 ACL이 이미 그 도구를 신뢰합니다.
 - 폴링 간격의 하한은 60초입니다. usage 엔드포인트는 `User-Agent: claude-code/<버전>` 없이 호출하면
   즉시 429를 반환하며, 과도한 폴링도 같은 결과를 냅니다.
 
