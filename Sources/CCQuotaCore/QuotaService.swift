@@ -140,8 +140,8 @@ public struct QuotaService: Sendable {
                 if needsPlan, var oauth = base.blob.oauth {
                     oauth.subscriptionType = profile.subscriptionType
                     oauth.rateLimitTier = profile.rateLimitTier
-                    if oauth.scopes == nil {
-                        oauth.scopes = OAuthFlow.scopes.split(separator: " ").map(String.init).sorted()
+                    if oauth.scopes?.isEmpty ?? true {
+                        oauth.scopes = OAuthFlow.grantedScopes
                     }
                     if oauth.refreshTokenExpiresAt == nil {
                         // The issue time is not recoverable for an older entry, so
@@ -220,6 +220,23 @@ public struct QuotaService: Sendable {
             try? SharedState.write(SharedStateFile(updatedAt: Date(), accounts: []))
             throw CCError("등록된 계정이 없습니다. 설정에서 브라우저 승인으로 등록하십시오.")
         }
+
+        // Repair what can be repaired locally, before anything else. `claude`
+        // reads `scopes` back out of a credential to decide it is a usable
+        // login, so an entry without it switches in as "not logged in" — and
+        // the value needs no request, since it is the set we asked for.
+        var repaired = false
+        for entry in store.accounts {
+            guard var oauth = entry.blob.oauth, oauth.scopes?.isEmpty ?? true else { continue }
+            oauth.scopes = OAuthFlow.grantedScopes
+            var fixed = entry
+            var blob = entry.blob
+            try? blob.setOAuth(oauth)
+            fixed.blob = blob
+            store[entry.label] = fixed
+            repaired = true
+        }
+        if repaired { try? store.save() }
 
         let previous = SharedState.read()
         if !force, let cached = previous, cached.isRateLimited {

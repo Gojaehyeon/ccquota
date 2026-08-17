@@ -28,6 +28,9 @@ public enum OAuthFlow {
     static let scopes = "user:profile user:inference user:sessions:claude_code "
         + "user:mcp_servers user:file_upload"
 
+    /// The same set as a sorted list, which is the shape stored in a credential.
+    public static let grantedScopes = scopes.split(separator: " ").map(String.init).sorted()
+
     public struct Pending: Sendable {
         public let url: URL
         public let verifier: String
@@ -100,11 +103,15 @@ public enum OAuthFlow {
             ?? (60 * 60 * 24 * 27)   // what `claude` records: roughly four weeks
 
         // Prefer what was actually granted over what was asked for.
+        // An empty list is not a usable login, so a blank or absent value falls
+        // back to what was requested rather than being recorded as "no scopes".
         let granted: [String] = {
-            if let list = obj["scope"] as? String { return list.split(separator: " ").map(String.init) }
-            if let list = obj["scopes"] as? [String] { return list }
-            return scopes.split(separator: " ").map(String.init)
-        }().sorted()
+            if let list = obj["scope"] as? String, !list.isEmpty {
+                return list.split(separator: " ").map(String.init).sorted()
+            }
+            if let list = obj["scopes"] as? [String], !list.isEmpty { return list.sorted() }
+            return grantedScopes
+        }()
 
         return ClaudeAiOAuth(
             accessToken: access,
