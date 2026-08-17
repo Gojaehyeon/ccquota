@@ -7,6 +7,17 @@ import Foundation
 /// the same posture Claude Code itself uses for `~/.claude/.credentials.json`
 /// on Linux and Windows.
 public struct AccountStore: Codable, Sendable {
+    /// Where an account's credential came from, which decides whether it may be
+    /// touched by the Keychain at all.
+    public enum Source: String, Codable, Sendable {
+        /// Granted to CCQuota by browser authorisation. Independent of `claude`:
+        /// it must never be overwritten by, or written back to, the live login.
+        case browser
+        /// Copied out of the Keychain. Inherently shares one token pair with
+        /// `claude`, so it has to be re-adopted as `claude` rotates it.
+        case keychain
+    }
+
     public struct Entry: Codable, Sendable {
         public var label: String
         public var blob: CredentialBlob
@@ -21,16 +32,22 @@ public struct AccountStore: Codable, Sendable {
         /// on every poll is pure waste — this is the invariant that makes a
         /// retry loop against the auth endpoint structurally impossible.
         public var refreshBlockedUntil: Date?
+        /// Absent on entries written before this existed; those came from the
+        /// Keychain, which is the conservative reading anyway.
+        public var source: Source?
+        public var credentialSource: Source { source ?? .keychain }
 
         public init(label: String, blob: CredentialBlob, tier: String?,
                     accountUUID: String? = nil, email: String? = nil,
-                    refreshBlockedUntil: Date? = nil) {
+                    refreshBlockedUntil: Date? = nil,
+                    source: Source? = nil) {
             self.label = label
             self.blob = blob
             self.tier = tier
             self.accountUUID = accountUUID
             self.email = email
             self.refreshBlockedUntil = refreshBlockedUntil
+            self.source = source
         }
     }
 
@@ -48,6 +65,10 @@ public struct AccountStore: Codable, Sendable {
 
     public var active: String?
     public var accounts: [Entry]
+    /// Fingerprint of the Keychain credential when the active account was last
+    /// identified. Re-identifying costs a profile request, and the answer cannot
+    /// change while this is unchanged.
+    public var lastSeenKeychainToken: String?
 
     public init(active: String? = nil, accounts: [Entry] = []) {
         self.active = active

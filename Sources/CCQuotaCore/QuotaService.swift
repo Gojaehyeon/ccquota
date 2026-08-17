@@ -5,46 +5,54 @@ import Foundation
 public struct QuotaService: Sendable {
     public init() {}
 
-    /// Pulls the live Keychain credential back into the active account's stored
-    /// snapshot. Claude Code rotates its access token roughly hourly, so without
-    /// this the stored copy for the account you are actually using goes stale
-    /// and every poll pays for an unnecessary refresh.
+    /// Works out which registered account `claude` is currently logged in as.
+    ///
+    /// It used to also copy the live credential into that account's entry, which
+    /// quietly undid the whole point of browser authorisation: within one poll a
+    /// browser-granted account was sharing `claude`'s token pair again, and the
+    /// two sides resumed rotating each other's tokens out from under one another.
+    /// Identification is all that is wanted here. Only an account that was copied
+    /// from the Keychain in the first place has anything to re-adopt.
     @discardableResult
     public func syncActiveFromKeychain(_ store: inout AccountStore) async -> Bool {
         guard let live = try? Keychain.readLiveCredential(),
               let liveOAuth = live.oauth else { return false }
 
-        // Fast path: the tokens still match a stored entry. There is deliberately
-        // no fallback to "whatever `active` points at" — after a /logout and a
-        // login as a different account, that fallback overwrites the stored entry
-        // with someone else's credential, binding one label to two accounts.
+        // Tokens rotate, so a fingerprint match only ever confirms; it never
+        // rules out. What it does buy is skipping the profile request while the
+        // live credential is unchanged, which is most of the time.
+        let fingerprint = liveOAuth.refreshToken
+        let unchanged = store.lastSeenKeychainToken == fingerprint
+
         var matched = store.accounts.first {
-            $0.blob.oauth?.refreshToken == liveOAuth.refreshToken
+            $0.blob.oauth?.refreshToken == fingerprint
                 || $0.blob.oauth?.accessToken == liveOAuth.accessToken
         }
-
-        // Slow path: `/login` issues a brand new token pair, so a legitimate
-        // re-login of a registered account matches nothing above. Identity has to
-        // come from the account UUID, which survives any number of logins.
+        if matched == nil, unchanged, let active = store.active {
+            matched = store[active]
+        }
         if matched == nil, !store.accounts.isEmpty,
            let profile = try? await ClaudeAPI.fetchProfile(accessToken: liveOAuth.accessToken) {
             matched = store.accounts.first { $0.accountUUID == profile.uuid }
         }
 
         guard let entry = matched else {
-            // Genuinely unknown — an account that was never registered. Leave the
-            // store alone rather than guess which label it belongs to.
             store.active = nil
+            store.lastSeenKeychainToken = fingerprint
             return false
         }
 
-        store[entry.label] = AccountStore.Entry(
-            label: entry.label, blob: live, tier: liveOAuth.rateLimitTier ?? entry.tier,
-            accountUUID: entry.accountUUID, email: entry.email,
-            // Adopting a live credential clears any rejection: this token came
-            // from `claude` itself and is by definition current.
-            refreshBlockedUntil: nil)
+        // Re-adopt only for an account that is a copy of the live login anyway.
+        // Doing it for a browser grant would replace a credential this tool owns
+        // with one it must share.
+        if entry.credentialSource == .keychain {
+            store[entry.label] = AccountStore.Entry(
+                label: entry.label, blob: live, tier: liveOAuth.rateLimitTier ?? entry.tier,
+                accountUUID: entry.accountUUID, email: entry.email,
+                refreshBlockedUntil: nil, source: .keychain)
+        }
         store.active = entry.label
+        store.lastSeenKeychainToken = fingerprint
         return true
     }
 
@@ -76,15 +84,22 @@ public struct QuotaService: Sendable {
 
         var blob = entry.blob
         try blob.setOAuth(oauth)
+        // Carrying `source` forward matters: losing it would silently reclassify
+        // a browser grant as a Keychain copy on its first refresh, and the next
+        // poll would go back to overwriting it with the live login.
         let updated = AccountStore.Entry(label: entry.label, blob: blob, tier: entry.tier,
                                          accountUUID: entry.accountUUID, email: entry.email,
-                                         refreshBlockedUntil: nil)
+                                         refreshBlockedUntil: nil,
+                                         source: entry.credentialSource)
 
-        // Refreshing rotates the token pair. If this is the account `claude` is
-        // logged in as, its Keychain copy is now the superseded one, so push the
-        // new pair back or the next `claude` run fails to authenticate.
-        if isActive {
-            try? Keychain.writeLiveCredential(blob)
+        // Only a Keychain-copied account shares its pair with `claude`, so only
+        // that one needs the rotated pair pushed back. Writing a browser grant
+        // into the live login would hand `claude` a credential it never asked
+        // for and does not track.
+        if isActive, entry.credentialSource == .keychain,
+           let live = try? Keychain.readLiveCredential(),
+           let merged = try? live.replacingOAuth(from: blob) {
+            try? Keychain.writeLiveCredential(merged)
         }
         return (result.accessToken, updated)
     }
@@ -121,6 +136,7 @@ public struct QuotaService: Sendable {
                 base.accountUUID = profile.uuid
                 base.email = profile.email
                 base.tier = profile.rateLimitTier ?? base.tier
+                base.source = base.credentialSource
                 if needsPlan, var oauth = base.blob.oauth {
                     oauth.subscriptionType = profile.subscriptionType
                     oauth.rateLimitTier = profile.rateLimitTier
@@ -335,7 +351,7 @@ public struct QuotaService: Sendable {
         store[label] = AccountStore.Entry(label: label, blob: blob,
                                           tier: profile.rateLimitTier,
                                           accountUUID: profile.uuid, email: profile.email,
-                                          refreshBlockedUntil: nil)
+                                          refreshBlockedUntil: nil, source: .browser)
         try store.save()
         return label
     }
@@ -363,7 +379,7 @@ public struct QuotaService: Sendable {
         }
         store[label] = AccountStore.Entry(label: label, blob: blob, tier: oauth.rateLimitTier,
                                           accountUUID: profile.uuid, email: profile.email,
-                                          refreshBlockedUntil: nil)
+                                          refreshBlockedUntil: nil, source: .keychain)
         store.active = label
         try store.save()
     }
